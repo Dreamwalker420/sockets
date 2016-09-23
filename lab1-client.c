@@ -22,8 +22,20 @@
 #define SECRET "<cs407rembash>\n"
 #define PORT 4070
 
-// TODO: Take a command line argument with the IP 4quad protocol
-int main(){
+int main(int argc, char *argv[]){
+	char *IP_ADDRESS;
+	// Capture command line argument
+	if(argc == 2){	
+		// TODO: Validate the IP Address
+
+		IP_ADDRESS = argv[1];
+	}
+	else{
+		printf("Usage: ./client [IP_ADDRESS]\n");
+		printf("Example: ./client 127.0.0.1\n");
+		exit(1);
+	}
+
 	int sockfd;
 	int len;
 	struct sockaddr_in address;
@@ -32,8 +44,8 @@ int main(){
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
 	address.sin_family = AF_INET;
-	// TODO: Change this to look at argument from command line
-	address.sin_addr.s_addr = inet_addr("127.0.0.1");
+	// Use command line argument for IP_ADDRESS here
+	address.sin_addr.s_addr = inet_addr(IP_ADDRESS);
 	address.sin_port = htons(PORT);
 	len = sizeof(address);
 
@@ -50,7 +62,7 @@ int main(){
 	char *server_protocol = readline(sockfd);
 	if(strcmp(protocol,server_protocol) != 0){
 		errno = 1;
-		perror("Server Cancelled");
+		perror("Incorrect Protocol");
 		close(sockfd);
 		exit(1);
 	}
@@ -60,7 +72,7 @@ int main(){
 	char *confirm_protocol = readline(sockfd);
 	if(strcmp(confirm_protocol,"<ok>\n") != 0){
 		errno = 1;
-		perror("Server Cancelled");
+		perror("Server Unable to Confirm Handshake");
 		close(sockfd);
 		exit(1);
 	}
