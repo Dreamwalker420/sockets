@@ -1,0 +1,5 @@
+# Don't bother with older versions
+/stage*/
+
+# Don't include documents
+/docs/
