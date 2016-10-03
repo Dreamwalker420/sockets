@@ -16,7 +16,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <errno.h>
-#include "readline.c"
+#include "server/readline.c"
 
 #define BUFFER_SIZE 4096
 #define SECRET "<cs407rembash>\n"
@@ -27,7 +27,7 @@ int main(int argc, char *argv[]){
 	// Capture command line argument
 	if(argc == 2){	
 		// TODO: Validate the IP Address
-
+		printf("Example: ./client %s\n", argv[1]);
 		IP_ADDRESS = argv[1];
 	}
 	else{
@@ -45,37 +45,39 @@ int main(int argc, char *argv[]){
 
 	address.sin_family = AF_INET;
 	// Use command line argument for IP_ADDRESS here
-	address.sin_addr.s_addr = inet_addr(IP_ADDRESS);
+	//address.sin_addr.s_addr = inet_addr(IP_ADDRESS);
+	address.sin_addr.s_addr = inet_addr("127.0.0.1");
 	address.sin_port = htons(PORT);
 	len = sizeof(address);
 
 	result = connect(sockfd, (struct sockaddr *)&address, len);
 
 	if(result == -1){
-		errno = 1;
-		perror("Client1 unable to connect to server ...");
-		exit(1);
+		perror("Client1 unable to connect to server.\n");
+		exit(EXIT_FAILURE);
 	}
 
 	// Check server protocol
 	char *protocol = "<rembash>\n";	
 	char *server_protocol = readline(sockfd);
 	if(strcmp(protocol,server_protocol) != 0){
-		errno = 1;
-		perror("Incorrect Protocol");
+		printf("Incorrect Protocol.\n");
 		close(sockfd);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
+	// Acknowledge protocol
+	printf("Protocol confirmed.\n");
 	// Send shared secret
 	write(sockfd, SECRET, strlen(SECRET));
+	printf("Sent server secret code.\n");
 	// Check confirmation & handle error
 	char *confirm_protocol = readline(sockfd);
 	if(strcmp(confirm_protocol,"<ok>\n") != 0){
-		errno = 1;
-		perror("Server Unable to Confirm Handshake");
+		printf("Server Unable to Confirm Handshake.\n");
 		close(sockfd);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
+	printf("Connection to server established.\n");
 /*
 	// Start a new subprocess
 	if(fork() == 0){
@@ -96,29 +98,27 @@ int main(int argc, char *argv[]){
 		close(sockfd);
 		exit(1);
 	}
-
 */
-
 	int test,nread;
 	while((nread = read(sockfd, &test, sizeof(test))) > 0){
 		test = ntohl(test);
 		printf("from server: %d\n", test);
 	}
-	
-	// Handle input from subprocess, send to server
-	while(1){
-		// Read output from socket
 
-		// Terminate on error
+	// // Handle input from subprocess, send to server
+	// while(1){
+	// 	// Read output from socket
+
+	// 	// Terminate on error
 	
-		// Write to users terminal
+	// 	// Write to users terminal
 		
-		// Terminate on error
-		printf("I'm listening ...");
-		sleep(10);	
-	}
+	// 	// Terminate on error
+	// 	printf("I'm listening ...\n");
+	// 	sleep(1);
+	// }
 
 	printf("Closing client socket.\n");
 	close(sockfd);
-	exit(0);
+	exit(EXIT_SUCCESS);
 }

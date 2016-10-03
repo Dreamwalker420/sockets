@@ -32,6 +32,7 @@ int main(){
 	struct sockaddr_in server_address;
 	struct sockaddr_in client_address;
 
+	// TODO: Check this system call
 	server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
 	server_address.sin_family = AF_INET;
@@ -45,18 +46,19 @@ int main(){
 	// TODO: Does this sufficiently collect child processes?  I don't think so
 	signal(SIGCHLD, SIG_IGN);
 
-	// Continue to accept new clients	
-	printf("server waiting\n");
-
 	while(1) {
+		// Continue to accept new clients	
+		printf("server waiting ...\n");
+		// Configure client socket		
 		client_len = sizeof(client_address);
 		client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_address, &client_len);
-
+		// Acknowledge new client
+		printf("processing new client ...\n");
 		// Call handle_client here to invoke function
 		handle_client(client_sockfd);
-		// TODO: How to exit here in a loop to look for new connections!
+		// Confirm new client
+		printf("new client confirmed.\n");
 	}
-	exit(0);
 }
 // End of Main
 
@@ -73,10 +75,9 @@ void handle_client(int connect_fd){
 	if(strcmp(from_client, SECRET) != 0){
 		char *write_error = "<error>\n";
 		write(connect_fd, write_error, strlen(write_error));
-		errno = 1;
-		perror("Client Token Rejected");
+		printf("Client Token Rejected.");
 		close(connect_fd);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 	// Confirm shared secret
 	char *confirm_protocol = "<ok>\n";
@@ -87,30 +88,47 @@ void handle_client(int connect_fd){
 	// dup2() system call to change FDs
 
 	// Spawn process to handle client
-	if(fork() == 0) {
-		// Start Bash
-		// use 'execlp("bash","bash","--noediting","-i",NULL)'
-		printf("I'm a real process!\n");
-		// Must close when bash is terminated
+	// if(fork() == 0) {
+	// 	// Start Bash
+	// 	// execlp("bash","bash","--noediting","-i",NULL);
+		
+	// 	printf("I'm a real process!\n");
+	// 	// Must close when bash is terminated
 
-		int test = 0;
-		int converted;		
-		while(test < 10){
-			sleep(5);
-			converted = htonl(test);				
-			printf("server: %d\n", test);			
-			write(connect_fd, &converted, sizeof(converted));
-			test++;
+	// 	int test = 0;
+	// 	int converted;		
+	// 	while(test < 10){
+	// 		sleep(5);
+	// 		converted = htonl(test);				
+	// 		//printf("server: %d\n", test);			
+	// 		write(connect_fd, &converted, sizeof(converted));
+	// 		test++;
 			
-		}
-		close(connect_fd);
+	// 	}
+	// 	close(connect_fd);
 
-		printf("client process completed.");
-		exit(0);
+	// 	printf("client process completed.");
+	// 	exit(EXIT_SUCCESS);
+	// }
+	// else {
+	// 	close(connect_fd);
+	// 	exit(EXIT_FAILURE);
+	// }
+
+	printf("I'm a real process!\n");
+	// Must close when bash is terminated
+
+	int test = 0;
+	int converted;		
+	while(test < 10){
+		sleep(5);
+		converted = htonl(test);				
+		printf("server: %d\n", test);			
+		write(connect_fd, &converted, sizeof(converted));
+		test++;
 	}
-	else {
-		close(connect_fd);
-		exit(1);
-	}
+	close(connect_fd);
+
+	printf("client process completed.");
 }
 // End of handle_client()
