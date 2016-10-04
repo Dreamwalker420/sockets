@@ -12,6 +12,7 @@
 #include <arpa/inet.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
@@ -33,7 +34,7 @@ int main(int argc, char *argv[]){
 	else{
 		printf("Usage: ./client [IP_ADDRESS]\n");
 		printf("Example: ./client 127.0.0.1\n");
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
 	int sockfd;
@@ -78,32 +79,38 @@ int main(int argc, char *argv[]){
 		exit(EXIT_FAILURE);
 	}
 	printf("Connection to server established.\n");
-/*
+
+	// dup2(0, sockfd);
+	// dup2(1, sockfd);
+	// dup2(2, sockfd);
+
 	// Start a new subprocess
 	if(fork() == 0){
+		// TODO: Remove
+		// This will test that the server is executing a bash script
+		write(sockfd, "ls -l; exit\n", 12);
+		// int nread;
+		// while(nread = read(sockfd, &server_protocol, BUFFER_SIZE) > 0){
+		// char *from_server = readline(sockfd);
+		// printf("This: %s\n", from_server);
+		// }
 		// Read command lines from terminal
 		// Use fgets assume < 512 characters
-		
+		// char command[512];
+		// fgets(command, sizeof(command),stdin);
+		// printf("Your command: %s\n", command);
 		// Terminate when 'file-end return' or error
 
 		// Write to server socket
 
 		// Terminate on error
 
-		printf("Client awaits your command!");
 	}
 	else{
-		errno = 1;
-		perror("Unable to start subprocess to handle client requests");
 		close(sockfd);
-		exit(1);
 	}
-*/
-	int test,nread;
-	while((nread = read(sockfd, &test, sizeof(test))) > 0){
-		test = ntohl(test);
-		printf("from server: %d\n", test);
-	}
+
+
 
 	// // Handle input from subprocess, send to server
 	// while(1){

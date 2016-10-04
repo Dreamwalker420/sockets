@@ -5,16 +5,18 @@
  * A note about the code here:  The bulk of this structure was taken from "Beginning Linux Programming" [pgs 604-677, 4th edition] by Matthew and Stone.
 */
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <stdio.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netinet/in.h>
 #include <signal.h>
-#include <unistd.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/stat.h> // TODO: Double check that I need this for dup2()
+#include <unistd.h>
 // Need this to read input from sockets into a string per requirements
 #include "readline.c"
 
@@ -85,50 +87,25 @@ void handle_client(int connect_fd){
 
 	// Set up redirection
 	// stdin, stdout, stderr must be redirected to client connection socket
-	// dup2() system call to change FDs
+	dup2(connect_fd, 0);
+	// dup2(connect_fd, 1);
+	// dup2(connect_fd, 2);
 
 	// Spawn process to handle client
-	// if(fork() == 0) {
-	// 	// Start Bash
-	// 	// execlp("bash","bash","--noediting","-i",NULL);
+	if(fork() == 0) {
+		// Start Bash
+		execlp("bash","bash","--noediting","-i",NULL);
 		
-	// 	printf("I'm a real process!\n");
-	// 	// Must close when bash is terminated
+		
 
-	// 	int test = 0;
-	// 	int converted;		
-	// 	while(test < 10){
-	// 		sleep(5);
-	// 		converted = htonl(test);				
-	// 		//printf("server: %d\n", test);			
-	// 		write(connect_fd, &converted, sizeof(converted));
-	// 		test++;
-			
-	// 	}
-	// 	close(connect_fd);
 
-	// 	printf("client process completed.");
-	// 	exit(EXIT_SUCCESS);
-	// }
-	// else {
-	// 	close(connect_fd);
-	// 	exit(EXIT_FAILURE);
-	// }
-
-	printf("I'm a real process!\n");
-	// Must close when bash is terminated
-
-	int test = 0;
-	int converted;		
-	while(test < 10){
-		sleep(5);
-		converted = htonl(test);				
-		printf("server: %d\n", test);			
-		write(connect_fd, &converted, sizeof(converted));
-		test++;
+		close(connect_fd);
+		exit(EXIT_SUCCESS);
 	}
-	close(connect_fd);
+	else {
+		close(connect_fd);
+		printf("unable to handle client process.");
+	}
 
-	printf("client process completed.");
 }
 // End of handle_client()
