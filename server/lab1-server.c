@@ -58,8 +58,6 @@ int main(){
 		printf("processing new client ...\n");
 		// Call handle_client here to invoke function
 		handle_client(client_sockfd);
-		// Confirm new client
-		printf("new client confirmed.\n");
 	}
 }
 // End of Main
@@ -85,27 +83,29 @@ void handle_client(int connect_fd){
 	char *confirm_protocol = "<ok>\n";
 	write(connect_fd, confirm_protocol, strlen(confirm_protocol)); // TODO: Can I error check this?
 
+	// Confirm new client
+	printf("new client confirmed.\n");
+
 	// Set up redirection
 	// stdin, stdout, stderr must be redirected to client connection socket
 	dup2(connect_fd, 0);
 	// dup2(connect_fd, 1);
 	// dup2(connect_fd, 2);
-
+		
 	// Spawn process to handle client
 	if(fork() == 0) {
+
+
 		// Start Bash
 		execlp("bash","bash","--noediting","-i",NULL);
 		
-		
-
-
 		close(connect_fd);
 		exit(EXIT_SUCCESS);
 	}
 	else {
 		close(connect_fd);
-		printf("unable to handle client process.");
+		printf("unable to handle client process.\n");
 	}
-
+	return;
 }
 // End of handle_client()

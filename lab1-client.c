@@ -2,21 +2,23 @@
  * CS 407 - Lab 1 (Client)
  * September 19, 2016
  * 
- * A note about the code here:  The bulk of this structure was taken from "Beginning Linux Programming" [pgs 604-677, 4th edition] by Matthew and Stone.
+ * A note about the code here:  The structure was taken from "Beginning Linux Programming" [pgs 604-677, 4th edition] by Matthew and Stone.
 */
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <stdio.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
-#include <sys/un.h>
-#include <unistd.h>
+#include <errno.h>
+#include <netinet/in.h>
 #include <signal.h>
+#include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
-#include <errno.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/un.h>
+#include <sys/wait.h>
+#include <unistd.h>
+// Need this to read input from sockets into a string per requirements
 #include "server/readline.c"
 
 #define BUFFER_SIZE 4096
@@ -46,8 +48,7 @@ int main(int argc, char *argv[]){
 
 	address.sin_family = AF_INET;
 	// Use command line argument for IP_ADDRESS here
-	//address.sin_addr.s_addr = inet_addr(IP_ADDRESS);
-	address.sin_addr.s_addr = inet_addr("127.0.0.1");
+	address.sin_addr.s_addr = inet_addr(IP_ADDRESS);
 	address.sin_port = htons(PORT);
 	len = sizeof(address);
 
@@ -80,50 +81,36 @@ int main(int argc, char *argv[]){
 	}
 	printf("Connection to server established.\n");
 
-	// dup2(0, sockfd);
-	// dup2(1, sockfd);
-	// dup2(2, sockfd);
-
 	// Start a new subprocess
-	if(fork() == 0){
-		// TODO: Remove
-		// This will test that the server is executing a bash script
-		write(sockfd, "ls -l; exit\n", 12);
-		// int nread;
-		// while(nread = read(sockfd, &server_protocol, BUFFER_SIZE) > 0){
-		// char *from_server = readline(sockfd);
-		// printf("This: %s\n", from_server);
-		// }
+	pid_t cpid;
+	if(cpid = (fork() == 0)){
+		write(sockfd,"ls -l;exit\n", 12);
 		// Read command lines from terminal
-		// Use fgets assume < 512 characters
-		// char command[512];
-		// fgets(command, sizeof(command),stdin);
-		// printf("Your command: %s\n", command);
-		// Terminate when 'file-end return' or error
-
-		// Write to server socket
-
-		// Terminate on error
+		// Use fgets, assume < 512 characters
+		char command[512];
+		while(fgets(command, sizeof(command),0) != NULL){
+			// Write to server socket
+			write(sockfd, command, strlen(command));
+		}
+		// TODO: Check for terminate when 'file-end return' or error
 
 	}
 	else{
 		close(sockfd);
 	}
 
+	// Read from socket to stdout
+	int nread;
+	char from_socket[BUFFER_SIZE];
+	while((nread = read(sockfd, from_socket, BUFFER_SIZE)) > 0){
+		// Write to socket
+		write(1,from_socket,nread);
+	}
 
+	// Termindate child process
+	wait(NULL);
+	kill(cpid,SIGTERM);
 
-	// // Handle input from subprocess, send to server
-	// while(1){
-	// 	// Read output from socket
-
-	// 	// Terminate on error
-	
-	// 	// Write to users terminal
-		
-	// 	// Terminate on error
-	// 	printf("I'm listening ...\n");
-	// 	sleep(1);
-	// }
 
 	printf("Closing client socket.\n");
 	close(sockfd);
