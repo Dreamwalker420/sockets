@@ -2,7 +2,11 @@
  * CS 407 - Labb 1 (Server)
  * September 19, 2016
  * 
- * A note about the code here:  The bulk of this structure was taken from "Beginning Linux Programming" [pgs 604-677, 4th edition] by Matthew and Stone.
+ * The bulk of this structure was taken from "Beginning Linux Programming" [pgs 604-677, 4th edition] by Matthew and Stone.
+ *
+ * Thomas Ruble was instrumental in helping me understand how to resolve several final issues with my code.
+ *
+ * I've commented out the system messages.  Like comments in the code, system messages seem like intuitively good programming.  However, as Thomas mentions, they technically exceed the specifications of the lab.
 */
 
 #include <arpa/inet.h>
@@ -20,7 +24,7 @@
 // Need this to read input from sockets into a string per requirements
 #include "readline.c"
 
-// Set shared secret for testing
+// Set shared secret
 #define SECRET "<cs407rembash>\n"
 // Set the port to be used by server and clients
 #define PORT 4070
@@ -34,28 +38,51 @@ int main(){
 	struct sockaddr_in server_address;
 	struct sockaddr_in client_address;
 
-	// TODO: Check this system call
-	server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	// Create server socket
+	if((server_sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1){
+		perror("Unable to create server socket.");
+		// Terminate server
+		exit(EXIT_FAILURE);
+	}
 
 	server_address.sin_family = AF_INET;
 	server_address.sin_addr.s_addr = htonl(INADDR_ANY);
 	server_address.sin_port = htons(PORT);
 	server_len = sizeof(server_address);
-	bind(server_sockfd, (struct sockaddr *)&server_address, server_len);
+	// Bind socket to server
+	int check_bind;
+	if((check_bind = bind(server_sockfd, (struct sockaddr *)&server_address, server_len)) == -1){
+		perror("Unable to bind socket to server.");
+		// Terminate server
+		exit(EXIT_FAILURE);
+	}
 
-	listen(server_sockfd, 5);
+	// Assign server to listen on the socket
+	int listening;
+	if((listening = listen(server_sockfd, 5)) == -1){
+		perror("Unable to listen on server socket.");
+		// Terminate server
+		exit(EXIT_FAILURE);
+	}
 
-	// TODO: Does this sufficiently collect child processes?  I don't think so
+	// Ignore when a child process closes
 	signal(SIGCHLD, SIG_IGN);
 
+	// Begin listening on the socket
 	while(1) {
 		// Continue to accept new clients	
-		printf("server waiting ...\n");
+		// printf("server waiting ...\n");
+		
 		// Configure client socket		
 		client_len = sizeof(client_address);
-		client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_address, &client_len);
+		if((client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_address, &client_len)) == -1){
+			perror("Unable to create socket for client.");
+			// Terminate server
+			exit(EXIT_FAILURE);
+		}
 		// Acknowledge new client
-		printf("processing new client ...\n");
+		// printf("processing new client ...\n");
+
 		// Call handle_client here to invoke function
 		handle_client(client_sockfd);
 	}
@@ -67,44 +94,80 @@ int main(){
 
 // Called by main server loop to handle client connections
 void handle_client(int connect_fd){
+	int nwrite;
 	// Send server protocol to client
 	char *server_protocol = "<rembash>\n";		
-	write(connect_fd, server_protocol, strlen(server_protocol));
+	if((nwrite = write(connect_fd, server_protocol, strlen(server_protocol))) == -1){
+		perror("Unable to communicate protocol to client.");
+		// End client cycle instead of server
+		close(connect_fd);
+		return;
+	}
+
 	// Verify client shared secret
 	char *from_client = readline(connect_fd);
 	if(strcmp(from_client, SECRET) != 0){
 		char *write_error = "<error>\n";
-		write(connect_fd, write_error, strlen(write_error));
-		printf("Client Token Rejected.");
+		if((nwrite = write(connect_fd, write_error, strlen(write_error))) == -1){
+			perror("Error notifying client of incorrect shared secret.");
+			// End client cycle instead of server
+			close(connect_fd);
+			return;
+		}
+		// Acknowledge client rejected
+		// printf("Client Token Rejected.");
+		
+		// End client cycle instead of server
 		close(connect_fd);
-		exit(EXIT_FAILURE);
+		return;
 	}
+
 	// Confirm shared secret
 	char *confirm_protocol = "<ok>\n";
-	write(connect_fd, confirm_protocol, strlen(confirm_protocol)); // TODO: Can I error check this?
+	if((nwrite = write(connect_fd, confirm_protocol, strlen(confirm_protocol))) == -1){
+		perror("Error notifying client of confirmed shared secret.");
+		// End client cycle instead of server
+		close(connect_fd);
+		return;
+	} 
 
 	// Confirm new client
-	printf("new client confirmed.\n");
+	// printf("new client confirmed.\n");
 
-	// Set up redirection
-	// stdin, stdout, stderr must be redirected to client connection socket
-	dup2(connect_fd, 0);
-	// dup2(connect_fd, 1);
-	// dup2(connect_fd, 2);
-		
 	// Spawn process to handle client
-	if(fork() == 0) {
+	pid_t cpid;
+	cpid = fork();
+	if (cpid == 0) {
+		// Child process needs redirection
+		// Set up redirection
+		// stdin, stdout, stderr must be redirected to client connection socket
+		dup2(connect_fd, 0);
+		dup2(connect_fd, 1);
+		dup2(connect_fd, 2);
 
+		// I can't accurately explain this as Thomas did.  Essentially, Bash will get confused on who owns or controls the terminal and will create conflicts with multiple clients.
+		setsid();
 
 		// Start Bash
+		// This is creating a "new" process with inheritance of file descriptors
+		// execlp returns -1 on error
 		execlp("bash","bash","--noediting","-i",NULL);
-		
+
+		// Handle error code from Bash failure
+		perror("Unable to execute Bash in terminal.");
+		// If Bash failed, terminate client, file descriptors get erased on exit
+		exit(EXIT_FAILURE);
+	}
+	else if (cpid == -1) {
+		// Check if fork failed
+		perror("Unable to create subprocess to handle client.\n");
 		close(connect_fd);
-		exit(EXIT_SUCCESS);
+		// If I can't fork, terminate the server
+		exit(EXIT_FAILURE);
 	}
 	else {
+		// Success!
 		close(connect_fd);
-		printf("unable to handle client process.\n");
 	}
 	return;
 }
