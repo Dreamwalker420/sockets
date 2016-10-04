@@ -27,15 +27,12 @@
 // Set the port to be used
 #define PORT 4070
 
-// Declare functions
-bool isValidIpAddress(char *ipAddress);
-
 int main(int argc, char *argv[]){
 	int nwrite;
 
 	char *IP_ADDRESS;
 	// Capture command line argument & check for valid ipaddress
-	if((argc == 2) && (isValidIpAddress(argv[1]) != 0)){	
+	if(argc == 2){
 		// Capture IP ADDRESS
 		IP_ADDRESS = argv[1];
 
@@ -44,8 +41,8 @@ int main(int argc, char *argv[]){
 	}
 	else{
 		// Handle incorrect command line entry
-		printf("Usage: ./client [IP_ADDRESS]\n");
-		printf("Example: ./client 127.0.0.1\n");
+		fprintf(stderr, "Usage: ./client [IP_ADDRESS]\n");
+		fprintf(stderr, "Example: ./client 127.0.0.1\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -59,14 +56,29 @@ int main(int argc, char *argv[]){
 	}
 
 	address.sin_family = AF_INET;
-	// Use command line argument for IP_ADDRESS here
-	inet_aton(IP_ADDRESS, &address.sin_addr);
 	address.sin_port = htons(PORT);
+
+	// Validate IP address
+	int check_IP;
+	// Use command line argument for IP_ADDRESS here
+	if((check_IP = inet_aton(IP_ADDRESS, &address.sin_addr)) == 0){
+		fprintf(stderr, "Invalid IP Address.\n");
+		// Terminate client
+		exit(EXIT_FAILURE);
+	}
+	else if (check_IP == -1){
+		perror("Unable to convert IP Address.");
+		// Terminate client
+		exit(EXIT_FAILURE);
+	}
+	else {
+		// IP ADDRESS is valid
+	}
 
 	// Connect to server
 	int check_connection;
 	if((check_connection = connect(sockfd, (struct sockaddr *)&address, sizeof(address))) == -1){
-		perror("Client1 unable to connect to server");
+		perror("Client unable to connect to server");
 		close(sockfd);
 		// Terminate client
 		exit(EXIT_FAILURE);
@@ -76,7 +88,7 @@ int main(int argc, char *argv[]){
 	char *protocol = "<rembash>\n";
 	char *server_protocol = readline(sockfd);
 	if(strcmp(protocol,server_protocol) != 0){
-		// printf("Incorrect Protocol.\n");	
+		fprintf(stderr, "Incorrect Protocol.\n");	
 		close(sockfd);
 		// Terminate client
 		exit(EXIT_FAILURE);
@@ -99,7 +111,7 @@ int main(int argc, char *argv[]){
 	// Check confirmation from server
 	char *confirm_protocol = readline(sockfd);
 	if(strcmp(confirm_protocol,"<ok>\n") != 0){
-		printf("Server Unable to Confirm Handshake.\n");
+		fprintf(stderr, "Server Unable to Confirm Handshake.\n");
 		close(sockfd);
 		// Terminate client
 		exit(EXIT_FAILURE);
@@ -134,6 +146,8 @@ int main(int argc, char *argv[]){
 	}
 	else {
 		// Success
+	
+
 		// Resume Parent Process
 		// Read from socket to stdout
 		int nread;
@@ -154,9 +168,9 @@ int main(int argc, char *argv[]){
 			// Terminate client
 			exit(EXIT_FAILURE);
 		}
+
 		close(sockfd);
-		// Terminate client and return command line control
-		exit(EXIT_SUCCESS);	
+		exit(EXIT_SUCCESS);
 	}
 
 	// Clean-up child processes
@@ -166,16 +180,8 @@ int main(int argc, char *argv[]){
 
 	// Acknowledge client is done
 	// printf("Closing client socket.\n");
+
 	close(sockfd);
 	exit(EXIT_SUCCESS);
 }
 // End of Main
-
-// http://stackoverflow.com/questions/791982/determine-if-a-string-is-a-valid-ip-address-in-c
-bool isValidIpAddress(char *ipAddress)
-{
-    struct sockaddr_in sa;
-    int result = inet_pton(AF_INET, ipAddress, &(sa.sin_addr));
-    return result != 0;
-}
-// End of isValidIpAddress
