@@ -27,19 +27,20 @@
 // Set the port to be used
 #define PORT 4070
 
+// Declare functions
+bool isValidIpAddress(char *ipAddress);
+
 int main(int argc, char *argv[]){
 	int nwrite;
 
 	char *IP_ADDRESS;
-	// Capture command line argument
-	if(argc == 2){	
-		// TODO: Validate the IP Address.  This was not required in the specs.  But it seems like it should be?
+	// Capture command line argument & check for valid ipaddress
+	if((argc == 2) && (isValidIpAddress(argv[1]) != 0)){	
+		// Capture IP ADDRESS
+		IP_ADDRESS = argv[1];
 
 		// Acknowledge command line input
 		// printf("Processing command: ./client %s\n", argv[1]);
-
-		// Capture IP ADDRESS
-		IP_ADDRESS = argv[1];
 	}
 	else{
 		// Handle incorrect command line entry
@@ -59,13 +60,13 @@ int main(int argc, char *argv[]){
 
 	address.sin_family = AF_INET;
 	// Use command line argument for IP_ADDRESS here
-	address.sin_addr.s_addr = inet_addr(IP_ADDRESS);
+	inet_aton(IP_ADDRESS, &address.sin_addr);
 	address.sin_port = htons(PORT);
 
 	// Connect to server
 	int check_connection;
 	if((check_connection = connect(sockfd, (struct sockaddr *)&address, sizeof(address))) == -1){
-		perror("Client1 unable to connect to server.\n");
+		perror("Client1 unable to connect to server");
 		close(sockfd);
 		// Terminate client
 		exit(EXIT_FAILURE);
@@ -153,6 +154,7 @@ int main(int argc, char *argv[]){
 			// Terminate client
 			exit(EXIT_FAILURE);
 		}
+		close(sockfd);
 		// Terminate client and return command line control
 		exit(EXIT_SUCCESS);	
 	}
@@ -168,3 +170,12 @@ int main(int argc, char *argv[]){
 	exit(EXIT_SUCCESS);
 }
 // End of Main
+
+// http://stackoverflow.com/questions/791982/determine-if-a-string-is-a-valid-ip-address-in-c
+bool isValidIpAddress(char *ipAddress)
+{
+    struct sockaddr_in sa;
+    int result = inet_pton(AF_INET, ipAddress, &(sa.sin_addr));
+    return result != 0;
+}
+// End of isValidIpAddress

@@ -65,6 +65,15 @@ int main(){
 		exit(EXIT_FAILURE);
 	}
 
+	// Allow kernel to begin using the port again when server terminated
+	int i=1;
+	int check_option;
+	if((check_option = setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEADDR, &i, sizeof(i))) == -1){
+		perror("Unable to inform kernel to reuse server socket.");
+		// Terminate server
+		exit(EXIT_FAILURE);
+	}
+
 	// Ignore when a child process closes
 	signal(SIGCHLD, SIG_IGN);
 
@@ -141,9 +150,25 @@ void handle_client(int connect_fd){
 		// Child process needs redirection
 		// Set up redirection
 		// stdin, stdout, stderr must be redirected to client connection socket
-		dup2(connect_fd, 0);
-		dup2(connect_fd, 1);
-		dup2(connect_fd, 2);
+		int check;
+		if((check = dup2(connect_fd, 0)) == -1){
+			perror("Unable to redirect standard input.");
+			close(connect_fd);
+			// If I can't fork, terminate the server
+			exit(EXIT_FAILURE);
+		}
+		if((check = dup2(connect_fd, 1)) == -1){
+			perror("Unable to redirect standard output.");
+			close(connect_fd);
+			// If I can't fork, terminate the server
+			exit(EXIT_FAILURE);
+		}
+		if((check = dup2(connect_fd, 2)) == -1){
+			perror("Unable to redirect standard error output.");
+			close(connect_fd);
+			// If I can't fork, terminate the server
+			exit(EXIT_FAILURE);
+		}
 
 		// I can't accurately explain this as Thomas did.  Essentially, Bash will get confused on who owns or controls the terminal and will create conflicts with multiple clients.
 		setsid();
@@ -160,7 +185,7 @@ void handle_client(int connect_fd){
 	}
 	else if (cpid == -1) {
 		// Check if fork failed
-		perror("Unable to create subprocess to handle client.\n");
+		perror("Unable to create subprocess to handle client.");
 		close(connect_fd);
 		// If I can't fork, terminate the server
 		exit(EXIT_FAILURE);
