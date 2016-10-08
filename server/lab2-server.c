@@ -10,6 +10,7 @@
  *
  */
 
+// From Lab #1
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -30,11 +31,13 @@
 // Set the port to be used by server and clients
 #define PORT 4070
 
+// For master PTY
+ #define _XOPEN_SOURCE 600
+
 // Declare functions
-int create_client_socket(int server_sockfd, struct sockaddr_in client_address);
+int create_client_socket(int server_sockfd);
 int create_server_socket();
 void handle_client(int connect_fd);
-
 
 int main(){
 	int server_sockfd, client_sockfd;
@@ -51,7 +54,7 @@ int main(){
 		// printf("server waiting ...\n");
 		
 		// Call create_client_socket()
-		client_sockfd = create_client_socket(server_sockfd, client_address);
+		client_sockfd = create_client_socket(server_sockfd);
 
 		// Acknowledge new client
 		// printf("processing new client ...\n");
@@ -73,9 +76,9 @@ int main(){
 // Functions
 
 // Called by main server loop to create a new client socket
-int create_client_socket(int server_sockfd, struct sockaddr_in client_address){
+int create_client_socket(int server_sockfd){
 	int client_sockfd, client_len;
-
+	struct sockaddr_in client_address;
 	client_len = sizeof(client_address);
 	if((client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_address, &client_len)) == -1){
 		perror("Server: Unable to create sockets for clients.");
@@ -90,9 +93,8 @@ int create_client_socket(int server_sockfd, struct sockaddr_in client_address){
 
 // Called by main server loop to create a server socket
 int create_server_socket(){
-	int server_len;
+	int server_sockfd, server_len;
 	struct sockaddr_in server_address;
-	struct sockaddr_in client_address;
 
 	// Create server socket
 	if((server_sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1){
@@ -130,7 +132,7 @@ int create_server_socket(){
 		exit(EXIT_FAILURE);
 	}
 
-	return server_socket;
+	return server_sockfd;
 }
 // End of create_server_socket
 
@@ -177,10 +179,29 @@ void handle_client(int connect_fd){
 	// Confirm new client
 	// printf("new client confirmed.\n");
 
+	// Order Identified by "The Linux Programming Interface" by Michael Kerrisk (pg. 1377, 2010)
+	// 1. The driver program opens the pseudoterminal master device.
+	// 2. The driver program calls fork() to create a child process. The child performs the following steps:
+	// 		a) Call setsid() to start a new session, of which the child is the session leader (Section 34.3). This step also causes the child to lose its controlling terminal.
+	// 		b) Open the pseudoterminal slave device that corresponds to the master device. Since the child process is a session leader, and it doesn’t have a con-trolling terminal, the pseudoterminal slave becomes the controlling terminal for the child process.
+	// 		c) Use dup() (or similar) to duplicate the file descriptor for the slave device on standard input, output, and error.
+	// 		d) Call exec() to start the terminal-oriented program that is to be connected to the pseudoterminal slave
+
+	// // Open PTY master device
+	// TODO: Verify that the functions are working before continuing with PTY
+	// int master_pty;
+	// if((master_pty = posix_openpt()) == -1){
+	// 	perror("Server: Unable to open PTY Master device.");
+	// 	exit(EXIT_FAILURE);
+	// }
+
 	// Spawn process to handle client
 	pid_t cpid;
 	cpid = fork();
 	if (cpid == 0) {
+		// I can't accurately explain this as Thomas did.  Essentially, Bash will get confused on who owns or controls the terminal and will create conflicts with multiple clients.
+		setsid();
+
 		// Child process needs redirection
 		// Set up redirection
 		// stdin, stdout, stderr must be redirected to client connection socket
@@ -204,10 +225,10 @@ void handle_client(int connect_fd){
 			exit(EXIT_FAILURE);
 		}
 
-		// I can't accurately explain this as Thomas did.  Essentially, Bash will get confused on who owns or controls the terminal and will create conflicts with multiple clients.
-		setsid();
 
-		// Create new PTY for Bash to work in
+
+
+
 
 	
 
@@ -215,6 +236,7 @@ void handle_client(int connect_fd){
 		// This is creating a "new" process with inheritance of file descriptors
 		// execlp returns -1 on error
 		execlp("bash","bash","--noediting","-i",NULL);
+		// execlp("bash", "bash", NULL);
 
 		// Handle error code from Bash failure
 		perror("Server: Unable to execute Bash in terminal.");
