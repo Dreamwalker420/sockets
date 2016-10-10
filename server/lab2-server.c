@@ -29,7 +29,6 @@ char *ptsname(int mfd);
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -53,9 +52,8 @@ int create_client_socket(int server_sockfd);
 int create_pty(char *pty_slave_name);
 int create_server_socket();
 void handle_client(int connect_fd);
-int handle_pty(int connect_fd, struct termios *ttyOrig);
 int protocol_exchange(int connect_fd);
-int tty_set_raw(int fd, struct termios *prevTermios);
+int tty_set_raw(int fd);
 
 // Global variable for PTY
 struct termios ttyOrig;
@@ -150,7 +148,7 @@ int create_client_socket(int server_sockfd){
 // End of create_client_socket()
 
 
-// Called by handle_pty to create pty device for client
+// Called by handle_client() to create pty device for client
 // Stores the pty slave name and returns the master file descriptor
 // Must store pty_slave_name for use by other functions
 int create_pty(char *pty_slave_name){
@@ -263,9 +261,6 @@ void handle_client(int connect_fd){
 		printf("New client confirmed.\n");
 	#endif
 
-	// Open a PTY
-	pid_t cpid;
-
 	// Retrieve the attributes of the terminal
 	if(tcgetattr(STDIN_FILENO, &ttyOrig) == -1){
 		perror("Server: Unable to retrieve attributes of the terminal.");
@@ -275,35 +270,7 @@ void handle_client(int connect_fd){
 	}
 
 	// Create a pseudoterminal for client
-	// TODO: This call to another function here is superfluous, remove it?
-	// Call to handle_pty()
-	cpid = handle_pty(connect_fd, &ttyOrig);
-	switch(cpid){
-		case -1:
-			// This occurs when the server cannot fork to create a place for Bash to execute
-			// Terminate this process
-			perror("Server: Unable to handle client PTY.");
-			close(connect_fd);
-			// Terminate server sub-process for handling client connections
-			exit(EXIT_FAILURE);
-		case 0:
-			// Success
-			// Return to server to handle new client
-			close(connect_fd);
-			exit(EXIT_SUCCESS);
-	}
 
-	// I should never get here ...
-	perror("Server: Something wrong with handle_pty() function.");
-	close(connect_fd);
-	// Terminate server sub-process for handling client connections
-	exit(EXIT_FAILURE);
-}
-// End of handle_client()
-
-
-// Called by handle_client()
-int handle_pty(int connect_fd, struct termios *ttyOrig){
 	// This is the server sub-process
 	int master_fd, slave_fd, savedErrno;
 
@@ -322,8 +289,7 @@ int handle_pty(int connect_fd, struct termios *ttyOrig){
 
 	// Create a secondary sub-process to handle Bash on a pseudoterminal
 	pid_t bash_cpid;
-	bash_cpid = fork();
-	switch(bash_cpid){
+	switch(bash_cpid = fork()){
 		case -1:
 			// Check if fork failed, still in sub-process for server to handle client
 			perror("Server: Unable to create sub-process for Bash to execute in.");
@@ -356,7 +322,7 @@ int handle_pty(int connect_fd, struct termios *ttyOrig){
 			}
 
 			if(&ttyOrig != NULL){
-				if(tcsetattr(slave_fd, TCSANOW, ttyOrig) == -1){
+				if(tcsetattr(slave_fd, TCSANOW, &ttyOrig) == -1){
 					perror("Server: Unable to set PTY slave attributes.");
 					close(slave_fd);
 					close(connect_fd);
@@ -404,12 +370,11 @@ int handle_pty(int connect_fd, struct termios *ttyOrig){
 	// Return of control flow to server sub-process
 	
 	// Set noncanonical mode
-	if(tty_set_raw(STDIN_FILENO, ttyOrig) == -1){
+	if(tty_set_raw(STDIN_FILENO) == -1){
 		fprintf(stderr, "Server: Unable to switch to noncanonical mode.");
 		// Terminate server sub-process handling client connection
 		exit(EXIT_FAILURE);
 	}
-
 
 	// Reset terminal when server sub-process terminates
 	if(atexit(ttyReset) != 0){
@@ -425,8 +390,7 @@ int handle_pty(int connect_fd, struct termios *ttyOrig){
 	char from_bash[BUFFER_SIZE];
 	// Create a tertiary server sub-process to read from client and write to PTY master
 	pid_t read_cpid;
-	read_cpid = fork();
-	switch(read_cpid){
+	switch(read_cpid = fork()){
 		case -1:
 			// Check if fork failed, still in sub-process for server to handle client
 			perror("Server: Unable to create sub-process for reading from client.");
@@ -489,7 +453,7 @@ int handle_pty(int connect_fd, struct termios *ttyOrig){
 	// Terminate server sub-process for handling client connection
 	exit(EXIT_SUCCESS);
 }
-// End of handle_pty()
+// End of handle_client()
 
 // Called by handle_client() for protocol exchange with server
 // Returns 0 on successful protocol exchange
@@ -540,18 +504,20 @@ int protocol_exchange(int connect_fd){
 // End of protocol exhcange
 
 
-// Called by handle_pty() to set noncanonical mode
+// Called by handle_client() to set noncanonical mode
 // Returns 0 on successful confirgurations
-int tty_set_raw(int fd, struct termios *prevTermios){
+int tty_set_raw(int fd){
 	struct termios t;
 
 	// Get terminal attributes
-	if(tcgetattr(fd, &t) == -1)
+	if(tcgetattr(fd, &t) == -1){
 		return -1;
+	}
 
-	// If the terminal attributes exist, use that setting
-	if(prevTermios != NULL)
-		*prevTermios = t;
+	// Check if attributes have already been set
+	if(&ttyOrig != NULL){
+		ttyOrig = t;
+	}
 
 	// From the book: "Noncanonical mode, disables signals, extended input processing, and echoing"
 	t.c_lflag &= ~(ICANON | IEXTEN | ECHO);
@@ -569,8 +535,9 @@ int tty_set_raw(int fd, struct termios *prevTermios){
 	t.c_cc[VTIME] = 0;
 
 	// Set new attributes
-	if(tcsetattr(fd, TCSAFLUSH, &t) == -1)
+	if(tcsetattr(fd, TCSAFLUSH, &t) == -1){
 		return -1;
+	}
 
 	return 0;
 }
