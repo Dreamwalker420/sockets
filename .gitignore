@@ -6,3 +6,6 @@
 
 # Don't upload Carver's files
 /carver/
+
+# Don't upload test files
+/test*

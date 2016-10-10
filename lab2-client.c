@@ -2,7 +2,11 @@
  * CS 407 - Lab 2 (Client)
  * October 4, 2016
  * 
- * The basics of this structure was taken from "Beginning Linux Programming" [pgs 604-677, 4th edition] by Matthew and Stone.
+ * Many of the structures of this program were obtained from outside sources.  They are cited on the line where they are used.  For broad interpretation of overall structure see the following sources:
+ *
+ * Sources:
+	"The Linux Programming Interface" [2010] by Michael Kerrisk
+ 	"Beginning Linux Programming" [2008] by Matthew and Stone.
  *
  */
 
