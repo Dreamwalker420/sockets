@@ -11,8 +11,12 @@ Lab #1
 * Handle multiple clients
 
 Lab #2
-* Convert to using functions
+* Convert code to using functions
 * Fork server to handle client
 * Server pseudoterminal
 * Fork server sub-process to execute Bash on pseudo-terminal
 * Server relays PTY data from terminal to master
+* Client fork to handle pseudoterminal
+* Client fork to relay PTY data from terminal to master
+
+Lab #3

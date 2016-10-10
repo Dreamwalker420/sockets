@@ -10,3 +10,7 @@
 
 # Don't upload test files
 /test*
+
+# Don't upload executable files
+/client
+/server/server
