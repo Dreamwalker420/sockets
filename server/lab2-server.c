@@ -252,7 +252,7 @@ int create_server_socket(){
 void handle_client(int connect_fd){
 	// Call protocol_exchange()
 	if(protocol_exchange(connect_fd) == -1){
-		perror("Server: Unable to complete protocol exchange with client.");
+		fprintf(stderr, "Server: Unable to complete protocol exchange with client.");
 		close(connect_fd);
 		// Terminate server sub-process for handling client connections
 		exit(EXIT_FAILURE);
@@ -492,6 +492,7 @@ int handle_pty(int connect_fd, struct termios *ttyOrig){
 // End of handle_pty()
 
 // Called by handle_client() for protocol exchange with server
+// Returns 0 on successful protocol exchange
 int protocol_exchange(int connect_fd){
 	int nwrite;
 	// Send server protocol to client
@@ -513,8 +514,14 @@ int protocol_exchange(int connect_fd){
 			close(connect_fd);
 			return -1;
 		}
+
 		// Acknowledge client rejected
-		// printf("Client Token Rejected.");
+		#ifdef DEBUG
+			printf("Client Token Rejected.");
+		#endif
+
+		// End client cycle instead of server
+		close(connect_fd);
 		return -1;
 	}
 
@@ -526,39 +533,42 @@ int protocol_exchange(int connect_fd){
 		close(connect_fd);
 		return -1;
 	} 
+
+	// Protocol exchange completed
+	return 0;
 }
 // End of protocol exhcange
 
 
 // Called by handle_pty() to set noncanonical mode
-// TODO: Clean up this function!
+// Returns 0 on successful confirgurations
 int tty_set_raw(int fd, struct termios *prevTermios){
 	struct termios t;
 
-	// TODO: explain this
+	// Get terminal attributes
 	if(tcgetattr(fd, &t) == -1)
 		return -1;
 
-	// TODO: explain this
+	// If the terminal attributes exist, use that setting
 	if(prevTermios != NULL)
 		*prevTermios = t;
 
-	// TODO: explain this
+	// From the book: "Noncanonical mode, disables signals, extended input processing, and echoing"
 	t.c_lflag &= ~(ICANON | IEXTEN | ECHO);
 
-	// TODO: explain this
+	// From the book: "Disable special handling of CR, NL, and BREAK.  No 8th-bit stripping or parity error handling. Disable START/STOP output flow control."
 	t.c_iflag &= ~(BRKINT | ICRNL | IGNBRK | IGNCR | INLCR | INPCK | ISTRIP | IXON | PARMRK);
 
-	// TODO: explain this
+	// From the book: "Disable all output processing"
 	t.c_oflag &= ~OPOST;
 
-	// TODO: explain this
+	// Only one character at a time
 	t.c_cc[VMIN] = 1;
 
-	// TODO: explain this
+	// BLOCK!
 	t.c_cc[VTIME] = 0;
 
-	// TODO: explain this
+	// Set new attributes
 	if(tcsetattr(fd, TCSAFLUSH, &t) == -1)
 		return -1;
 
