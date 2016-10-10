@@ -136,7 +136,7 @@ int main(int argc, char *argv[]){
 			write(sockfd, command, strlen(command));
 		}
 		if(errno){
-			perror("Client error when reading input command.");
+			perror("Client: Error when reading input command.");
 			// Terminate client
 			exit(EXIT_FAILURE);
 		}
@@ -162,14 +162,14 @@ int main(int argc, char *argv[]){
 			// Write to socket
 			if((nwrite = write(1,from_socket,nread)) == -1){
 				// Handle error writing to buffer
-				perror("Unable to write command to Bash");
+				perror("Client: Unable to write command to Bash");
 				// Terminate client
 				exit(EXIT_FAILURE);
 			}
 		}
 		if(errno){
 			// Parent error reading from buffer
-			perror("Client unable to read from Bash");
+			perror("Client: Unable to read from Bash");
 			// Terminate client
 			exit(EXIT_FAILURE);
 		}

@@ -10,6 +10,8 @@
  *
  */
 
+#define DEBUG 1
+
 // Feature Test Macros
 // For pseudalterminal device (PTY)
 #define _GNU_SOURCE // might not compile on Solaris, FreeBSD, Mac OS X, etc. (http://stackoverflow.com/questions/5378778/what-does-d-xopen-source-do-mean)
@@ -27,11 +29,11 @@ char *ptsname(int mfd);
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/ioctl.h>  // TODO: Determine if this is necessary?
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
 // Need this to read input from sockets into a string per requirements
@@ -43,14 +45,14 @@ char *ptsname(int mfd);
 #define PORT 4070
 // Set buffer size for pty slave name
 #define MAX_SNAME 1000
-// Set buffer size for communication between PTY master and terminal
-#define BUF_SIZE 256
+// Set buffer size for communications between Bash and PTY
+#define BUFFER_SIZE 4096
 
 // Declare functions
 int create_client_socket(int server_sockfd);
 int create_pty(char *pty_slave_name);
 int create_server_socket();
-int handle_client(int connect_fd);
+void handle_client(int connect_fd);
 int handle_pty(int connect_fd, struct termios *ttyOrig);
 int protocol_exchange(int connect_fd);
 int tty_set_raw(int fd, struct termios *prevTermios);
@@ -68,9 +70,8 @@ static void ttyReset(void){
 
 // Begin main()
 int main(){
-	// TODO: Verify how this works
 	#ifdef DEBUG
-		printf("Server is running ...");
+		printf("Starting server ...\n");
 	#endif
 
 	// Server and client socket file descriptors
@@ -78,39 +79,49 @@ int main(){
 
 	// Call create_server_socket()
 	server_sockfd = create_server_socket();
+	if(server_sockfd == -1){
+		fprintf(stderr, "Server: Unable to initiate a server socket.");
+		// Terminate server if I cannot create a server socket
+		exit(EXIT_FAILURE);
+	}
 
 	// Ignore when a child process closes
 	signal(SIGCHLD, SIG_IGN);
 
 	// Begin listening on the socket
 	while(1) {
-		// Continue to accept new clients	
-		// printf("server waiting ...\n");
-		
+		// Continue to accept new clients
+		#ifdef DEBUG
+			printf("Server waiting ...\n");
+		#endif
+
 		// Call create_client_socket()
-		// TODO: Error check this?
 		client_sockfd = create_client_socket(server_sockfd);
+		if(server_sockfd == -1){
+			fprintf(stderr, "Server: Unable to initiate a server socket.");
+			// Terminate server if I cannot create a server socket
+			exit(EXIT_FAILURE);
+		}
 
 		// Acknowledge new client
-		// printf("processing new client ...\n");
+		#ifdef DEBUG
+			printf("Processing new client ...\n");
+		#endif
 
 		// Start a sub-process to handle the client
 		switch(fork()){
 			case -1:
-				// Error
+				// Error creating sub-process for handling a client
 				perror("Server: Unable to start a sub-process to handle client.");
+				// Terminate server
 				exit(EXIT_FAILURE);
 			case 0:
 				// Child process to handle client
-				// Call handle_client() here
-				// TODO: Since this is a fork here, I need to error check the function and close it
-				if(handle_client(client_sockfd) == -1){
-					perror("Server: Unable to handle client.");
-					// Terminate server if it cannot handle clients
-					exit(EXIT_FAILURE);
-				}
+				// Call handle_client() here, this does not return a value, all error checking is handled inside the function
+				handle_client(client_sockfd);
 		}
-		// A successful fork should create a subprocess to handle the client and return the server to listening for another connection.
+
+		// A successful fork should create a sub-process to handle the client and return the server to listening for another connection.
 		// This is an infinite loop
 		// CTRL-C in the terminal will stop the server from running
 	}
@@ -189,6 +200,7 @@ int create_pty(char *pty_slave_name){
 
 
 // Called by main server loop to create a server socket
+// Returns a server socket file descriptor on success
 int create_server_socket(){
 	int server_sockfd, server_len;
 	struct sockaddr_in server_address;
@@ -237,7 +249,7 @@ int create_server_socket(){
 
 // Called by main server loop to handle client connections
 // The socket file descriptor assigned to the client is connect_fd
-int handle_client(int connect_fd){
+void handle_client(int connect_fd){
 	// Call protocol_exchange()
 	if(protocol_exchange(connect_fd) == -1){
 		perror("Server: Unable to complete protocol exchange with client.");
@@ -247,7 +259,9 @@ int handle_client(int connect_fd){
 	}
 
 	// Confirm new client
-	// printf("new client confirmed.\n");
+	#ifdef DEBUG
+		printf("New client confirmed.\n");
+	#endif
 
 	// Open a PTY
 	pid_t cpid;
@@ -261,6 +275,7 @@ int handle_client(int connect_fd){
 	}
 
 	// Create a pseudoterminal for client
+	// TODO: This call to another function here is superfluous, remove it?
 	// Call to handle_pty()
 	cpid = handle_pty(connect_fd, &ttyOrig);
 	switch(cpid){
@@ -279,7 +294,7 @@ int handle_client(int connect_fd){
 	}
 
 	// I should never get here ...
-	perror("Server: Something wrong with handle_client() function.");
+	perror("Server: Something wrong with handle_pty() function.");
 	close(connect_fd);
 	// Terminate server sub-process for handling client connections
 	exit(EXIT_FAILURE);
@@ -291,7 +306,6 @@ int handle_client(int connect_fd){
 int handle_pty(int connect_fd, struct termios *ttyOrig){
 	// This is the server sub-process
 	int master_fd, slave_fd, savedErrno;
-	pid_t bash_pid;
 
 	// Need a loction for the pty_slave_name
 	char pty_slave_name[MAX_SNAME];
@@ -306,9 +320,10 @@ int handle_pty(int connect_fd, struct termios *ttyOrig){
 		exit(EXIT_FAILURE);
 	}
 
-	// Create a tertiary sub-process to handle Bash on a pseudoterminal
-	bash_pid = fork();
-	switch(bash_pid){
+	// Create a secondary sub-process to handle Bash on a pseudoterminal
+	pid_t bash_cpid;
+	bash_cpid = fork();
+	switch(bash_cpid){
 		case -1:
 			// Check if fork failed, still in sub-process for server to handle client
 			perror("Server: Unable to create sub-process for Bash to execute in.");
@@ -317,16 +332,16 @@ int handle_pty(int connect_fd, struct termios *ttyOrig){
 			// If I can't fork, terminate the server sub-process
 			exit(EXIT_FAILURE);
 		case 0:
-			// This is creating a tertiary sub-process with inheritance of file descriptors
+			// This is creating a secondary sub-process with inheritance of file descriptors
 
-			// This is not needed in the tertiary server sub-process
+			// This is not needed in the secondary server sub-process
 			close(master_fd);
 
 			// Child is the leader of the new session and looses its controlling terminal.
 			if(setsid() == -1){
 				perror("Server: Unable to set a new session.");
 				close(connect_fd);
-				// Terminate tertiary server sub-process if I am unable to set a new session
+				// Terminate secondary server sub-process if I am unable to set a new session
 				exit(EXIT_FAILURE);
 			}
 
@@ -336,7 +351,7 @@ int handle_pty(int connect_fd, struct termios *ttyOrig){
 				perror("Server: Unable to set controlling terminal.");
 				close(slave_fd);
 				close(connect_fd);
-				// Terminate tertiary server sub-process
+				// Terminate secondary server sub-process
 				exit(EXIT_FAILURE);
 			}
 
@@ -345,16 +360,13 @@ int handle_pty(int connect_fd, struct termios *ttyOrig){
 					perror("Server: Unable to set PTY slave attributes.");
 					close(slave_fd);
 					close(connect_fd);
-					// Terminate tertiary server sub-process
+					// Terminate secondary server sub-process
 					exit(EXIT_FAILURE);				
 				}
 			}
 
 			// Child process needs redirection
-			// Set up redirection
 			// stdin, stdout, stderr must be redirected to client connection socket
-
-			// TODO: I think the STDIN_FILENO needs to be replaced with the connect_fd here???
 			if(dup2(slave_fd, STDIN_FILENO) != STDIN_FILENO){
 				perror("Server: Unable to redirect standard input.");
 				close(connect_fd);
@@ -374,7 +386,7 @@ int handle_pty(int connect_fd, struct termios *ttyOrig){
 				exit(EXIT_FAILURE);
 			}
 
-			// TODO: Determine what this is for
+			// Cannot accurate;y explain this.  Book described this as a "safety check".  What is at risk that needs to be checked?
 			if(slave_fd > STDERR_FILENO){
 				close(slave_fd);
 			}
@@ -392,8 +404,12 @@ int handle_pty(int connect_fd, struct termios *ttyOrig){
 	// Return of control flow to server sub-process
 	
 	// Set noncanonical mode
-	// TODO: Error check this
-	tty_set_raw(STDIN_FILENO, ttyOrig);
+	if(tty_set_raw(STDIN_FILENO, ttyOrig) == -1){
+		fprintf(stderr, "Server: Unable to switch to noncanonical mode.");
+		// Terminate server sub-process handling client connection
+		exit(EXIT_FAILURE);
+	}
+
 
 	// Reset terminal when server sub-process terminates
 	if(atexit(ttyReset) != 0){
@@ -402,55 +418,76 @@ int handle_pty(int connect_fd, struct termios *ttyOrig){
 		exit(EXIT_FAILURE);
 	}
 
-	// Relay data between terminal and PTY master
-	int scriptFd;
-	fd_set inFds;
-	char buf[BUF_SIZE];
-	ssize_t numRead;
+	// Relay data between BASH and PTY
+	int nread;
+	int nwrite;
+	char from_client[BUFFER_SIZE];
+	char from_bash[BUFFER_SIZE];
+	// Create a tertiary server sub-process to read from client and write to PTY master
+	pid_t read_cpid;
+	read_cpid = fork();
+	switch(read_cpid){
+		case -1:
+			// Check if fork failed, still in sub-process for server to handle client
+			perror("Server: Unable to create sub-process for reading from client.");
+			close(master_fd);
+			close(connect_fd);
+			// If I can't fork, terminate the server sub-process
+			exit(EXIT_FAILURE);
+		case 0:
+			// This creates a tertiary server sub-process for handling reading from client and writing to PTY master
 
-	for (;;) {
-		FD_ZERO(&inFds);
-		FD_SET(STDIN_FILENO, &inFds);
-		FD_SET(master_fd, &inFds);
-
-		if (select(master_fd + 1, &inFds, NULL, NULL, NULL) == -1){
-			// TODO: FIx this error check
-			// errExit("select");
-		}
-
-		if (FD_ISSET(STDIN_FILENO, &inFds)) {   /* stdin --> pty */
-			numRead = read(STDIN_FILENO, buf, BUF_SIZE);
-			if (numRead <= 0)
-				exit(EXIT_SUCCESS);
-
-			if (write(master_fd, buf, numRead) != numRead){
-				// TODO: Fix this error check
-				// fatal("partial/failed write (masterFd)");
+			// Read from client socket
+			while((nread = read(connect_fd,from_client,BUFFER_SIZE)) > 0){
+				// Write to PTY master
+				if((nwrite = write(master_fd,from_client, nread)) == -1){
+					perror("Server: Unable to write to PTY master.");
+					// Terminate tertiary server sub-process
+					exit(EXIT_FAILURE);
+				}
 			}
-		}
-
-		if (FD_ISSET(master_fd, &inFds)) {      /* pty --> stdout+file */
-			numRead = read(master_fd, buf, BUF_SIZE);
-			if (numRead <= 0)
-				exit(EXIT_SUCCESS);
-
-			if (write(STDOUT_FILENO, buf, numRead) != numRead){
-				// TODO: Fix this error check
-				// fatal("partial/failed write (STDOUT_FILENO)");
+			if(errno){
+				// Server tertiary sub-process error reading from buffer
+				perror("Server: Unable to read from client output");
+				// Terminate tertiary server sub-process
+				exit(EXIT_FAILURE);
 			}
-			if (write(connect_fd, buf, numRead) != numRead){
-				// TODO: Fix this error check
-				// fatal("partial/failed write (scriptFd)");
-			}
-		}
+			close(master_fd);
+			close(connect_fd);
+			// Terminate server tertiary sub-process
+			exit(EXIT_FAILURE);
 	}
 
-	// I should never get here ...
-	perror("Server: Something wrong with handle_pty() function.");
+	// Server tertiary sub-process handling output from client and writing to PTY master input 
+	// Return of control flow to server sub-process
+	// Read from PTY slave and write to client
+
+	// Read from bash
+	while((nread = read(master_fd,from_bash,BUFFER_SIZE)) > 0){
+		// Write to client
+		if((nwrite = write(connect_fd, from_bash, nread)) == -1){
+			perror("Server: Unable to write to client.");
+			// Terminate secondary server sub-process
+			exit(EXIT_FAILURE);
+		}
+	}
+	// TODO: Terminate sub-process when client unexpectedly stops
+	if(errno){
+		// Server secondary sub-process error reading from buffer
+		perror("Server: Unable to read from Bash output");
+		// Terminate secondary server sub-process
+		exit(EXIT_FAILURE);
+	}
+
+	// Termindate child process
+	wait(NULL);
+	kill(bash_cpid,SIGTERM);
+	kill(read_cpid,SIGTERM);
+
 	close(master_fd);
 	close(connect_fd);
-	// Terminate server sub-process for handling client connections
-	exit(EXIT_FAILURE);
+	// Terminate server sub-process for handling client connection
+	exit(EXIT_SUCCESS);
 }
 // End of handle_pty()
 
