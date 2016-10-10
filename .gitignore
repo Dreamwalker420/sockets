@@ -1,5 +1,6 @@
 # Don't bother with older versions
 /lab1/
+/lab2/
 
 # Don't include documents
 /docs/

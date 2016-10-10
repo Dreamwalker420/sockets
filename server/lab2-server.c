@@ -27,6 +27,7 @@ char *ptsname(int mfd);
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/ioctl.h>  // TODO: Determine if this is necessary?
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -42,14 +43,17 @@ char *ptsname(int mfd);
 #define PORT 4070
 // Set buffer size for pty slave name
 #define MAX_SNAME 1000
+// Set buffer size for communication between PTY master and terminal
+#define BUF_SIZE 256
 
 // Declare functions
 int create_client_socket(int server_sockfd);
 int create_pty(char *pty_slave_name);
 int create_server_socket();
 int handle_client(int connect_fd);
-int handle_pty(int connect_fd, const struct termios *ttyOrig);
+int handle_pty(int connect_fd, struct termios *ttyOrig);
 int protocol_exchange(int connect_fd);
+int tty_set_raw(int fd, struct termios *prevTermios);
 
 // Global variable for PTY
 struct termios ttyOrig;
@@ -57,8 +61,8 @@ struct termios ttyOrig;
 // Reset terminal mode on program exit
 static void ttyReset(void){
 	if(tcsetattr(STDIN_FILENO, TCSANOW, &ttyOrig) == -1){
-		// TODO: Fix this to the correct error handler
-		// errExit("tcsetattr");
+		perror("Server: Unable to resert terminal.");
+		exit(EXIT_FAILURE);
 	}
 }
 
@@ -200,6 +204,16 @@ int create_server_socket(){
 	server_address.sin_addr.s_addr = htonl(INADDR_ANY);
 	server_address.sin_port = htons(PORT);
 	server_len = sizeof(server_address);
+
+	// Allow kernel to begin using the port again when server terminated
+	int i=1;
+	int check_option;
+	if((check_option = setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEADDR, &i, sizeof(i))) == -1){
+		perror("Server: Unable to inform kernel to reuse server socket.");
+		// Terminate server
+		exit(EXIT_FAILURE);
+	}
+
 	// Bind socket to server
 	int check_bind;
 	if((check_bind = bind(server_sockfd, (struct sockaddr *)&server_address, server_len)) == -1){
@@ -212,15 +226,6 @@ int create_server_socket(){
 	int listening;
 	if((listening = listen(server_sockfd, 5)) == -1){
 		perror("Server: Unable to listen on server socket.");
-		// Terminate server
-		exit(EXIT_FAILURE);
-	}
-
-	// Allow kernel to begin using the port again when server terminated
-	int i=1;
-	int check_option;
-	if((check_option = setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEADDR, &i, sizeof(i))) == -1){
-		perror("Server: Unable to inform kernel to reuse server socket.");
 		// Terminate server
 		exit(EXIT_FAILURE);
 	}
@@ -274,7 +279,7 @@ int handle_client(int connect_fd){
 	}
 
 	// I should never get here ...
-	perror("Server: Something wrong with handle_pty() function.");
+	perror("Server: Something wrong with handle_client() function.");
 	close(connect_fd);
 	// Terminate server sub-process for handling client connections
 	exit(EXIT_FAILURE);
@@ -283,7 +288,7 @@ int handle_client(int connect_fd){
 
 
 // Called by handle_client()
-int handle_pty(int connect_fd, const struct termios *ttyOrig){
+int handle_pty(int connect_fd, struct termios *ttyOrig){
 	// This is the server sub-process
 	int master_fd, slave_fd, savedErrno;
 	pid_t bash_pid;
@@ -326,8 +331,7 @@ int handle_pty(int connect_fd, const struct termios *ttyOrig){
 			}
 
 			// Set PTY slave as the controlling terminal
-			slave_fd = open(*pty_slave_name, O_RDWR);
-
+			slave_fd = open(pty_slave_name, O_RDWR);
 			if(slave_fd == -1){
 				perror("Server: Unable to set controlling terminal.");
 				close(slave_fd);
@@ -385,20 +389,68 @@ int handle_pty(int connect_fd, const struct termios *ttyOrig){
 	}
 
 	// Bash executing in new sub-process with pseudoterminal
-	// Server sub-process still needs to do a few things
+	// Return of control flow to server sub-process
 	
-	// TODO: Determine what this is for
-	// ttySetRaw(STDIN_FILENO, &ttyOrig);
+	// Set noncanonical mode
+	// TODO: Error check this
+	tty_set_raw(STDIN_FILENO, ttyOrig);
 
-	// Resets terminal when server sub-process terminates
+	// Reset terminal when server sub-process terminates
 	if(atexit(ttyReset) != 0){
 		perror("Server: Unable to reset terminal.");
 		// Terminate server sub-process handling client connection
 		exit(EXIT_FAILURE);
 	}
 
-	// Return to server sub-process to allow it to close successfully
-	return 0;
+	// Relay data between terminal and PTY master
+	int scriptFd;
+	fd_set inFds;
+	char buf[BUF_SIZE];
+	ssize_t numRead;
+
+	for (;;) {
+		FD_ZERO(&inFds);
+		FD_SET(STDIN_FILENO, &inFds);
+		FD_SET(master_fd, &inFds);
+
+		if (select(master_fd + 1, &inFds, NULL, NULL, NULL) == -1){
+			// TODO: FIx this error check
+			// errExit("select");
+		}
+
+		if (FD_ISSET(STDIN_FILENO, &inFds)) {   /* stdin --> pty */
+			numRead = read(STDIN_FILENO, buf, BUF_SIZE);
+			if (numRead <= 0)
+				exit(EXIT_SUCCESS);
+
+			if (write(master_fd, buf, numRead) != numRead){
+				// TODO: Fix this error check
+				// fatal("partial/failed write (masterFd)");
+			}
+		}
+
+		if (FD_ISSET(master_fd, &inFds)) {      /* pty --> stdout+file */
+			numRead = read(master_fd, buf, BUF_SIZE);
+			if (numRead <= 0)
+				exit(EXIT_SUCCESS);
+
+			if (write(STDOUT_FILENO, buf, numRead) != numRead){
+				// TODO: Fix this error check
+				// fatal("partial/failed write (STDOUT_FILENO)");
+			}
+			if (write(connect_fd, buf, numRead) != numRead){
+				// TODO: Fix this error check
+				// fatal("partial/failed write (scriptFd)");
+			}
+		}
+	}
+
+	// I should never get here ...
+	perror("Server: Something wrong with handle_pty() function.");
+	close(master_fd);
+	close(connect_fd);
+	// Terminate server sub-process for handling client connections
+	exit(EXIT_FAILURE);
 }
 // End of handle_pty()
 
@@ -409,6 +461,8 @@ int protocol_exchange(int connect_fd){
 	char *server_protocol = "<rembash>\n";		
 	if((nwrite = write(connect_fd, server_protocol, strlen(server_protocol))) == -1){
 		perror("Server: Unable to communicate protocol to client.");
+		// End client cycle instead of server
+		close(connect_fd);
 		return -1;
 	}
 
@@ -431,7 +485,46 @@ int protocol_exchange(int connect_fd){
 	char *confirm_protocol = "<ok>\n";
 	if((nwrite = write(connect_fd, confirm_protocol, strlen(confirm_protocol))) == -1){
 		perror("Server: Error notifying client of confirmed shared secret.");
+		// End client cycle instead of server
+		close(connect_fd);
 		return -1;
 	} 
 }
 // End of protocol exhcange
+
+
+// Called by handle_pty() to set noncanonical mode
+// TODO: Clean up this function!
+int tty_set_raw(int fd, struct termios *prevTermios){
+	struct termios t;
+
+	// TODO: explain this
+	if(tcgetattr(fd, &t) == -1)
+		return -1;
+
+	// TODO: explain this
+	if(prevTermios != NULL)
+		*prevTermios = t;
+
+	// TODO: explain this
+	t.c_lflag &= ~(ICANON | IEXTEN | ECHO);
+
+	// TODO: explain this
+	t.c_iflag &= ~(BRKINT | ICRNL | IGNBRK | IGNCR | INLCR | INPCK | ISTRIP | IXON | PARMRK);
+
+	// TODO: explain this
+	t.c_oflag &= ~OPOST;
+
+	// TODO: explain this
+	t.c_cc[VMIN] = 1;
+
+	// TODO: explain this
+	t.c_cc[VTIME] = 0;
+
+	// TODO: explain this
+	if(tcsetattr(fd, TCSAFLUSH, &t) == -1)
+		return -1;
+
+	return 0;
+}
+// End of tty_set_raw()
