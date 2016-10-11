@@ -12,5 +12,5 @@
 /test*
 
 # Don't upload executable files
-/client
-/server/server
+/*.exe
+/server/*.exe
