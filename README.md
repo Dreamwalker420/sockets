@@ -16,7 +16,10 @@ Lab #2
 * Server pseudoterminal
 * Fork server sub-process to execute Bash on pseudo-terminal
 * Server relays PTY data from terminal to master
-* Client fork to handle pseudoterminal
-* Client fork to relay PTY data from terminal to master
+* Client fork to handle command line input to server socket
+* Client  relay data from terminal to display
 
 Lab #3
+* Use a thread to invoke epoll API for handling read
+* Use a thread on the server to handle a new client
+* Prevent malicious client attack with timers
