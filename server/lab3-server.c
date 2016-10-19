@@ -346,7 +346,7 @@ void * handle_epoll(){
 	        	exit(EXIT_FAILURE);
 	    	}
 	    	// Move to next client
-	    	x += 2;
+	    	x++;
 	    }
 
 	    // Calculate how many file descriptors are ready
