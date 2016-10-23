@@ -51,6 +51,8 @@
 #define BUFFER_SIZE 4096
 // Set the maximum number of events for epoll to handle
 #define MAX_EVENTS 5
+ // Set the clock to be used by timer
+#define CLOCKID CLOCK_REALTIME
 
 // Declare functions
 int create_pty(char *pty_slave_name);
@@ -508,7 +510,7 @@ int protocol_exchange(int connect_fd){
 	sevp.sigev_value.sival_int = pthread_self();
 
     // TODO: Solve why timer is invalid
-    if(timer_create(CLOCK_REALTIME, &sevp, &timer_id) == -1){
+    if(timer_create(CLOCKID, &sevp, &timer_id) == -1){
     	if(errno == EINVAL){
     		// This is the error I get ... 
     		perror("Clock ID");
