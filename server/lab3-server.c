@@ -15,7 +15,7 @@
  */
 
 // TODO: Turn this off when submitting for grading
-//#define DEBUG 1
+#define DEBUG 1
 
 // Feature Test Macro for pseudalterminal device (PTY)
 #define _XOPEN_SOURCE 600
@@ -31,16 +31,14 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <pthread.h>
-//#include <pty.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
-//#include <sys/timerfd.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
- #include <termios.h>
+// #include <termios.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -539,7 +537,7 @@ int protocol_exchange(int connect_fd){
 	if(strcmp(from_client, SECRET) != 0){
 	    // Check for race conditions on each stage of the exchange
 	    if(timer_flag != 0){
-	    	perror("Server: Connection Timeout.");
+	    	fprintf(stderr, "Server: Connection Timeout.");
 	    	return -1;
 	    } 
 	    // Notify client of error
