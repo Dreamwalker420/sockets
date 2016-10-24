@@ -260,7 +260,7 @@ void relay_command_and_read_server_socket(int sockfd){
 
 	int nread, nwrite, total;
 	char from_socket[BUFFER_SIZE];
-	char command[BUFFER_SIZE];
+	char command;
 	// Start a new subprocess to listen to terminal commands and send to PTY
 	pid_t read_cpid;
 	switch(read_cpid = fork()){
@@ -277,17 +277,13 @@ void relay_command_and_read_server_socket(int sockfd){
 				printf("Client sub-process.\n");
 			#endif
 
-			// Read from client socket
-			nwrite = 0;
-			while(nwrite != -1 && (nread = read(0,command,BUFFER_SIZE)) > 0){
-				total = 0;
-				do{
+			// Read from client terminal
+			while((nread = read(0,&command,1)) > 0){
+				
 					// Write to remote socket
-					if((nwrite = write(sockfd,command+total,nread-total)) == -1){
+					if((nwrite = write(sockfd,&command,1)) == -1){
 						break;
 					}
-					total += nwrite;
-				}while(total < nread);
 			}
 			if(errno){
 				perror("Client: Error when reading input command.");
@@ -317,12 +313,12 @@ void relay_command_and_read_server_socket(int sockfd){
 		printf("Client reading from server socket.\n");
 	#endif
 
-	// Read input from client to relay to server
+	// Read input from server to relay to client
 	nwrite = 0;
 	while(nwrite != -1 && (nread = read(sockfd, from_socket, BUFFER_SIZE)) > 0){
 		total = 0;
 		do{
-			// Write to socket
+			// Write to stdout
 			if((nwrite = write(1,from_socket+total,nread-total)) == -1){
 				break;
 			}
@@ -378,13 +374,14 @@ int tty_set_raw(int fd){
 	}
 
 	// From the book: "Noncanonical mode, disables signals, extended input processing, and echoing"
-	t.c_lflag &= ~(ICANON | IEXTEN | ECHO);
+	// TODO: Look at what happens when I remove echo here
+	t.c_lflag &= ~(ICANON | ECHO);
 
-	// From the book: "Disable special handling of CR, NL, and BREAK.  No 8th-bit stripping or parity error handling. Disable START/STOP output flow control."
-	t.c_iflag &= ~(BRKINT | ICRNL | IGNBRK | IGNCR | INLCR | INPCK | ISTRIP | IXON | PARMRK);
+	// // From the book: "Disable special handling of CR, NL, and BREAK.  No 8th-bit stripping or parity error handling. Disable START/STOP output flow control."
+	// t.c_iflag &= ~(BRKINT | ICRNL | IGNBRK | IGNCR | INLCR | INPCK | ISTRIP | IXON | PARMRK);
 
-	// From the book: "Disable all output processing"
-	t.c_oflag &= ~OPOST;
+	// // From the book: "Disable all output processing"
+	// t.c_oflag &= ~OPOST;
 
 	// Only one character at a time
 	t.c_cc[VMIN] = 1;

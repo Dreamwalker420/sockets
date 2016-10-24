@@ -15,7 +15,7 @@
  */
 
 // TODO: Turn this off when submitting for grading
-#define DEBUG 1
+//#define DEBUG 1
 
 // Feature Test Macro for pseudalterminal device (PTY)
 #define _XOPEN_SOURCE 600
@@ -67,6 +67,7 @@ void *handle_client(void *arg);
 void *handle_epoll(void *);
 int protocol_exchange(int connect_fd);
 void run_pty_shell(char *pty_slave_name, int connect_fd);
+int set_socket_to_non_block(int socket_fd);
 void signal_handler(int sig, siginfo_t *si, void *uc);
 
 // Global variables
@@ -123,7 +124,7 @@ int main(){
 	while(1){
 		// Important!! --> Server blocks on accept4() call.
 		// This makes the socket non-blocking, Linux kernels > 2.6.27
-		if((client_sockfd = accept4(server_sockfd, (struct sockaddr *) NULL, NULL, SOCK_CLOEXEC | SOCK_NONBLOCK)) != -1){
+		if((client_sockfd = accept4(server_sockfd, (struct sockaddr *) NULL, NULL, SOCK_CLOEXEC)) != -1){
 			// Notify server and continue listening for new clients
 			#ifdef DEBUG
 				printf("Processing new client ...\n");
@@ -179,10 +180,10 @@ int create_pty(char *pty_slave_name){
 		return -1;
 	}
 
-	// Set this to non-blocking
-	if(fcntl(master_fd, F_SETFL, O_NONBLOCK)){
-		fprintf(stderr, "Server: Unable to set socket to non-blocking.");
-		return -1;
+	// Set pty master to non-blocking
+	if(set_socket_to_non_block(master_fd) == -1){
+		fprintf(stderr, "Server: Unable to set client socket to non-blocking");
+		pthread_exit(NULL);
 	}
 
 	// Unlock PTY slave
@@ -215,8 +216,9 @@ int create_server_socket(){
 	struct sockaddr_in server_address;
 
 	// Create server socket
+	// TODO: Remove this note
 	// This makes the socket non-blocking, Linux kernels > 2.6.27
-	if((server_sockfd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)) == -1){
+	if((server_sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1){
 		perror("Server: Unable to create server socket.");
 		return -1;
 	}
@@ -282,7 +284,13 @@ void *handle_client(void *arg){
 		printf("Client-Server Protocol Exchange Completed.\n");
 		printf("Create PTY for client with file descriptor %d.\n", connect_fd);
 	#endif
-	
+
+	// Set client socket to non-blocking
+	if(set_socket_to_non_block(connect_fd) == -1){
+		fprintf(stderr, "Server: Unable to set client socket to non-blocking");
+		pthread_exit(NULL);
+	}
+
 	// Create pseudoterminal for bash to execute on
 	if((master_fd = create_pty(pty_slave_name)) == -1){
 		perror("Server: Unable to create PTY. Cancelled client connection.");
@@ -332,7 +340,7 @@ void *handle_client(void *arg){
 	#endif
 
 	// Add client file descriptors to epoll	
-	evlist[0].events = EPOLLIN | EPOLLET;
+	evlist[0].events = EPOLLIN;
 	evlist[0].data.fd = connect_fd;
     if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, connect_fd, evlist) == -1){
 	    perror("Server: Unable to add to ePoll interest list.");
@@ -340,7 +348,7 @@ void *handle_client(void *arg){
 	}
 
 	// Add bash relay file descriptor to epoll
-	evlist[1].events = EPOLLIN | EPOLLET;
+	evlist[1].events = EPOLLIN;
 	evlist[1].data.fd = master_fd;
     if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, master_fd, evlist + 1) == -1){
 	    perror("Server: Unable to add to ePoll interest list.");
@@ -464,8 +472,8 @@ int protocol_exchange(int connect_fd){
 	ts.it_interval.tv_sec = 0;
 	ts.it_interval.tv_nsec = 0;
 	// Timer should be 5 seconds
-	ts.it_value.tv_sec = 5;
-    ts.it_value.tv_nsec = 0;
+	ts.it_value.tv_sec = 0;
+    ts.it_value.tv_nsec = 1;
 
 	// Sends signal to terminate if it exceeds the timer limit
 	sa.sa_flags = SA_SIGINFO;
@@ -592,6 +600,10 @@ void run_pty_shell(char *pty_slave_name, int connect_fd){
 		exit(EXIT_FAILURE);
 	}
 
+	#ifdef DEBUG
+		printf("Server sub-process ready to execute Bash.\n");
+	#endif
+
 	// Child process needs redirection
 	// stdin, stdout, stderr must be redirected to client connection socket
 	if(dup2(slave_fd, STDIN_FILENO) != STDIN_FILENO){
@@ -607,10 +619,6 @@ void run_pty_shell(char *pty_slave_name, int connect_fd){
 		exit(EXIT_FAILURE);
 	}
 
-	#ifdef DEBUG
-		printf("Server sub-process ready to execute Bash.\n");
-	#endif
-
 	// Start Bash
 	execlp("bash", "bash", NULL);
 
@@ -619,6 +627,26 @@ void run_pty_shell(char *pty_slave_name, int connect_fd){
 	exit(EXIT_FAILURE);
 }
 // End of run_pty_shell()
+
+
+// Called by handle_client and create_pty to set non-blocking io
+// Returns 0 on success, -1 on failure
+int set_socket_to_non_block(int socket_fd){
+	// Get bitmask for the socket
+	int flag_for_fd = 0;
+	if((flag_for_fd = fcntl(socket_fd,F_GETFL, 0)) == -1){
+		perror("Server: Unable to get socket flags.");
+		return -1;
+	}
+	// Set flag for the file descriptor to non blocking
+	if(fcntl(socket_fd, F_SETFL, flag_for_fd | O_NONBLOCK) == -1){
+		perror("Server: Unable to set socket to non-blocking.");
+		return -1;
+	}
+
+	return 0;
+}
+// End of set_socket_to_non_block
 
 
 // Handle signals during protocol exchange
