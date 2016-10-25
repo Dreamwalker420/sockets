@@ -10,7 +10,7 @@
  */
 
 // TODO: Turn this off when submitting for grading
-#define DEBUG 1
+// #define DEBUG 1
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -356,7 +356,6 @@ void relay_command_and_read_server_socket(int sockfd){
 void sigchld_handler(int signal)
 {
   wait(NULL);
-  // TODO: Uncomment this when I have confirmed my solution works
   // restore_tty_settings(&tty_settings);
   exit(EXIT_FAILURE);
 }
@@ -379,14 +378,7 @@ int tty_set_raw(int fd){
 	}
 
 	// From the book: "Noncanonical mode, disables signals, extended input processing, and echoing"
-	// TODO: Look at what happens when I remove echo here
 	t.c_lflag &= ~(ICANON | ECHO);
-
-	// // From the book: "Disable special handling of CR, NL, and BREAK.  No 8th-bit stripping or parity error handling. Disable START/STOP output flow control."
-	// t.c_iflag &= ~(BRKINT | ICRNL | IGNBRK | IGNCR | INLCR | INPCK | ISTRIP | IXON | PARMRK);
-
-	// // From the book: "Disable all output processing"
-	// t.c_oflag &= ~OPOST;
 
 	// Only one character at a time
 	t.c_cc[VMIN] = 1;

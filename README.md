@@ -20,6 +20,8 @@ Lab #2
 * Client  relay data from terminal to display
 
 Lab #3
-* Use a thread to invoke epoll API for handling read
-* Use a thread on the server to handle a new client
+* Use a thread on the server to invoke epoll API for handling input and output to and from Bash to client
+* Use a thread on the server to handle a new client, then fork a process to exec Bash
 * Prevent malicious client attack with timers
+* Use a signal to kill server thread on timeout
+* Close client socket on timeout

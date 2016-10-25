@@ -15,7 +15,7 @@
  */
 
 // TODO: Turn this off when submitting for grading
-#define DEBUG 1
+// #define DEBUG 1
 
 // Feature Test Macro for pseudalterminal device (PTY)
 #define _XOPEN_SOURCE 600
@@ -24,7 +24,7 @@
 // Feature Test Macro for accept4() call
 #define _GNU_SOURCE
 
-// TODO: Verify necessity of these includes
+// Headers
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -38,7 +38,6 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
-// #include <termios.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -58,7 +57,7 @@
 // Set the clock to be used by timer
 #define CLOCKID CLOCK_REALTIME
 // Set a limit on the epoll
-#define MAX_CLIENTS 64000 * 2 + 5
+#define MAX_CLIENTS 64000
 
 // Declare functions
 int create_pty(char *pty_slave_name);
@@ -75,7 +74,7 @@ pid_t cpid_list[MAX_CLIENTS] = { 0 };
 // File descriptor for epoll
 int epoll_fd;
 // Pairs of file descriptors for epoll to scan.  All initialized to 0
-int epoll_fd_pairs[MAX_CLIENTS] = { 0 };
+int epoll_fd_pairs[MAX_CLIENTS * 2 + 5] = { 0 };
 
 
 // Begin main()
@@ -123,7 +122,7 @@ int main(){
 	// Begin listening on the socket
 	while(1){
 		// Important!! --> Server blocks on accept4() call.
-		// This makes the socket non-blocking, Linux kernels > 2.6.27
+		// Do not make client socket non-blocking until after protocol exchange
 		if((client_sockfd = accept4(server_sockfd, (struct sockaddr *) NULL, NULL, SOCK_CLOEXEC)) != -1){
 			// Notify server and continue listening for new clients
 			#ifdef DEBUG
@@ -175,6 +174,8 @@ int main(){
 int create_pty(char *pty_slave_name){
 	// Open PTY master device
 	int master_fd;
+	char *p;
+
 	if((master_fd = posix_openpt(O_RDWR | O_CLOEXEC)) == -1){
 		fprintf(stderr, "Server: Could not create pseudoterminal.");
 		return -1;
@@ -191,7 +192,6 @@ int create_pty(char *pty_slave_name){
 	unlockpt(master_fd);
 
 	// Get PTY slave name
-	char *p;
 	p = ptsname(master_fd);
 	if(p == NULL){
 		return -1;	
@@ -204,6 +204,7 @@ int create_pty(char *pty_slave_name){
 		errno = EOVERFLOW;
 		return -1;	
 	}
+
 	return master_fd;
 }
 // End of create_pty()
@@ -214,10 +215,9 @@ int create_pty(char *pty_slave_name){
 int create_server_socket(){
 	int server_sockfd;
 	struct sockaddr_in server_address;
+	int i = 1;
 
 	// Create server socket
-	// TODO: Remove this note
-	// This makes the socket non-blocking, Linux kernels > 2.6.27
 	if((server_sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1){
 		perror("Server: Unable to create server socket.");
 		return -1;
@@ -232,12 +232,12 @@ int create_server_socket(){
 	server_address.sin_port = htons(PORT);
 
 	// Allow kernel to begin using the port again when server terminated
-	int i=1;
 	if(setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEADDR, &i, sizeof(i)) == -1){
 		perror("Server: Unable to inform kernel to reuse server socket.");
 		return -1;
 	}
 
+	// Disable Nagle buffer algorithm, speed up transfer
 	if(setsockopt(server_sockfd, IPPROTO_TCP, TCP_NODELAY, &i, sizeof(i)) == -1){
 		perror("Server: Problem with TCP setting.");
 		return -1;
@@ -369,7 +369,11 @@ void *handle_epoll(void * _){
 	
 	struct epoll_event evlist[MAX_EVENTS];
     char buffer[BUFFER_SIZE];
-   	int nread, nwrite, total, read_from_socket, write_to_socket = 0;
+   	int nread = 0;
+   	int nwrite = 0;
+   	int total = 0;
+   	int read_from_socket = 0;
+   	int write_to_socket = 0;
 
     // Find file desciptors with needs
     while(1){
@@ -379,7 +383,7 @@ void *handle_epoll(void * _){
 
 	    // Create epoll interest list from global variable
 	    // Calculate how many file descriptors are ready
-	    int ready_fds;
+	    int ready_fds = 0;
         ready_fds = epoll_wait(epoll_fd, evlist, MAX_EVENTS, -1);
         if (ready_fds == -1) {
             if (errno == EINTR)
@@ -413,13 +417,18 @@ void *handle_epoll(void * _){
 						// Keep reading from the buffer until it is done
 					}while(total < nread);
 				}
-				//if(nread == -1 && errno != EWOULDBLOCK && errno != EAGAIN){
+				// Handle errors from io
 				if(errno != EWOULDBLOCK && errno != EAGAIN){
 					perror("Server: Unable to read output.");
 					// Kill Bash if there is an error here
 					kill(cpid_list[evlist[j].data.fd], SIGTERM);
-					// Close the file descriptor on error
-					close(epoll_fd_pairs[evlist[j].data.fd]);
+					// Close the file descriptors on error
+					if(close(epoll_fd_pairs[read_from_socket]) == -1){
+						fprintf(stderr, "Server: Problem closing socket: %d", epoll_fd_pairs[read_from_socket]);
+					}
+					if(close(epoll_fd_pairs[write_to_socket]) == -1){
+						fprintf(stderr, "Server: Problem closing socket: %d", epoll_fd_pairs[write_to_socket]);
+					}
 			        exit(EXIT_FAILURE);
 				}
 			}
@@ -427,16 +436,26 @@ void *handle_epoll(void * _){
 				#ifdef DEBUG
 					printf("Server: EPOLLHUP or EPOLLERR.  Closing %d and %d\n.",evlist[j].data.fd, epoll_fd_pairs[evlist[j].data.fd]);
 				#endif
-				// Close the file descriptor on error
-				close(epoll_fd_pairs[evlist[j].data.fd]);
+				// Close the file descriptors on error
+				if(close(epoll_fd_pairs[read_from_socket]) == -1){
+					fprintf(stderr, "Server: Problem closing socket: %d", epoll_fd_pairs[read_from_socket]);
+				}
+				if(close(epoll_fd_pairs[write_to_socket]) == -1){
+					fprintf(stderr, "Server: Problem closing socket: %d", epoll_fd_pairs[write_to_socket]);
+				}
 			}
 			else {
 				// Should not be possible to get here!
 				perror("Server: ePoll API error.");
 				// Kill Bash if there is an error here
 				kill(cpid_list[evlist[j].data.fd], SIGTERM);
-				// Close the file descriptor on error
-				close(epoll_fd_pairs[evlist[j].data.fd]);
+				// Close the file descriptors on error
+				if(close(epoll_fd_pairs[read_from_socket]) == -1){
+					fprintf(stderr, "Server: Problem closing socket: %d", epoll_fd_pairs[read_from_socket]);
+				}
+				if(close(epoll_fd_pairs[write_to_socket]) == -1){
+					fprintf(stderr, "Server: Problem closing socket: %d", epoll_fd_pairs[write_to_socket]);
+				}
 		        exit(EXIT_FAILURE);
 			}
         }
@@ -463,10 +482,10 @@ int protocol_exchange(int connect_fd){
 	struct sigaction sa;
 	struct sigevent sevp;
 	timer_t timer_id;
-	int timer_flag = 0;
 	int nread = 0;
 	int nwrite = 0;
 	char from_client[513];
+	char *server_protocol = "<rembash>\n";
 	char *write_error = "<error>\n";
 	char *confirm_protocol = "<ok>\n";
 
@@ -515,24 +534,11 @@ int protocol_exchange(int connect_fd){
     	return -1;	
     }
 
-    // Check for race conditions on each stage of the exchange
-    if(timer_flag != 0){
-    	fprintf(stderr, "Server: Connection Timeout.");
-    	return -1;
-    } 
-
-	// Send server protocol to client
-	char *server_protocol = "<rembash>\n";		
+	// Send server protocol to client		
 	if((nwrite = write(connect_fd, server_protocol, strlen(server_protocol))) == -1){
 		perror("Server: Unable to communicate protocol to client.");
 		return -1;
 	}
-
-    // Check for race conditions on each stage of the exchange
-    if(timer_flag != 0){
-    	fprintf(stderr, "Server: Connection Timeout.");
-    	return -1;
-    } 
 
 	// Verify client shared secret
 	if((nread = read(connect_fd,from_client,512)) == -1){
@@ -541,11 +547,6 @@ int protocol_exchange(int connect_fd){
 	}
 	from_client[nread] = '\0';
 	if(strcmp(from_client, SECRET) != 0){
-	    // Check for race conditions on each stage of the exchange
-	    if(timer_flag != 0){
-	    	fprintf(stderr, "Server: Connection Timeout.");
-	    	return -1;
-	    } 
 	    // Notify client of error
 		if((nwrite = write(connect_fd, write_error, strlen(write_error))) == -1){
 			perror("Server: Error notifying client of incorrect shared secret.");
@@ -571,9 +572,10 @@ int protocol_exchange(int connect_fd){
 		perror("Server: Unable to turn off signal notification.");
 		return -1;
 	}
+
 	// Destroy timer
 	if(timer_delete(timer_id) == -1){
-		perror("Server: Timer is still active.");
+		fprintf(stderr, "Server: Timer is still active for %d", connect_fd);
 		return -1;
 	}
 
@@ -656,7 +658,9 @@ void signal_handler(int sig, siginfo_t *si, void *uc){
 	// Find client socket
 	int client_socket = si->si_value.sival_int;
 	// Close client socket
-	close(client_socket);
+	if(close(client_socket) == -1){
+		fprintf(stderr, "Server: Problem closing client socket: %d", client_socket);
+	}
 
 	#ifdef DEBUG
 		printf("Closed Client Socket: %d\n", client_socket);
