@@ -15,7 +15,7 @@
  */
 
 // TODO: Turn this off when submitting for grading
-//#define DEBUG 1
+#define DEBUG 1
 
 // Feature Test Macro for pseudalterminal device (PTY)
 #define _XOPEN_SOURCE 600
@@ -463,7 +463,9 @@ int protocol_exchange(int connect_fd){
 	struct sigaction sa;
 	struct sigevent sevp;
 	timer_t timer_id;
-	int timer_flag, nread, nwrite = 0;
+	int timer_flag = 0;
+	int nread = 0;
+	int nwrite = 0;
 	char from_client[513];
 	char *write_error = "<error>\n";
 	char *confirm_protocol = "<ok>\n";
@@ -472,8 +474,8 @@ int protocol_exchange(int connect_fd){
 	ts.it_interval.tv_sec = 0;
 	ts.it_interval.tv_nsec = 0;
 	// Timer should be 5 seconds
-	ts.it_value.tv_sec = 0;
-    ts.it_value.tv_nsec = 1;
+	ts.it_value.tv_sec = 5;
+    ts.it_value.tv_nsec = 0;
 
 	// Sends signal to terminate if it exceeds the timer limit
 	sa.sa_flags = SA_SIGINFO;
@@ -487,12 +489,8 @@ int protocol_exchange(int connect_fd){
     // Notify by thread
 	sevp.sigev_notify = SIGEV_THREAD_ID;
 	sevp.sigev_signo = SIGRTMAX;
-	sevp.sigev_value.sival_ptr = &timer_flag;
 	sevp._sigev_un._tid = syscall(__NR_gettid);
-	
-	#ifdef DEBUG
-		sevp.sigev_value.sival_int = pthread_self();
-	#endif
+	sevp.sigev_value.sival_int = connect_fd;
 
     // Create a timer to limit protocol exchange
     if(timer_create(CLOCKID, &sevp, &timer_id) == -1){
@@ -519,7 +517,7 @@ int protocol_exchange(int connect_fd){
 
     // Check for race conditions on each stage of the exchange
     if(timer_flag != 0){
-    	perror("Server: Connection Timeout.");
+    	fprintf(stderr, "Server: Connection Timeout.");
     	return -1;
     } 
 
@@ -532,7 +530,7 @@ int protocol_exchange(int connect_fd){
 
     // Check for race conditions on each stage of the exchange
     if(timer_flag != 0){
-    	perror("Server: Connection Timeout.");
+    	fprintf(stderr, "Server: Connection Timeout.");
     	return -1;
     } 
 
@@ -652,25 +650,24 @@ int set_socket_to_non_block(int socket_fd){
 // Handle signals during protocol exchange
 void signal_handler(int sig, siginfo_t *si, void *uc){
 	#ifdef DEBUG
-		printf("Signal Called!");
+		printf("Signal Called!\n");
 	#endif
 
-	// Set timer_flag
-	*(int *) si->si_value.sival_ptr = 1;
+	// Find client socket
+	int client_socket = si->si_value.sival_int;
+	// Close client socket
+	close(client_socket);
 
-	// Terminate server thread
 	#ifdef DEBUG
-		// Identify which thread is being terminated
-		pid_t tid;
-		tid = si->si_value.sival_int;
-		printf("Terminate Thread: %d", tid);
+		printf("Closed Client Socket: %d\n", client_socket);
 	#endif
 
 	// Terminate this thread
 	pthread_exit(NULL);
 
+	// Should not print here if successfully exited
 	#ifdef DEBUG
-		printf("Thread Terminated");
+		fprintf(stderr, "Thread Not Terminated\n");
 	#endif
 }
 // End of signal_handler()

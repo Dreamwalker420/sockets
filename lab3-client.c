@@ -182,6 +182,11 @@ int configure_client_socket(char *IP_ADDRESS){
 
 // Called by main() to validate client socket connection to server
 void connect_client_to_server(int sockfd){
+	// #ifdef DEBUG
+	// 	printf("Go to sleep to test the timer.\n");
+	// 	sleep(5);
+	// #endif
+
 	int nread, nwrite;
 	// Check server protocol
 	char *protocol = "<rembash>\n";
