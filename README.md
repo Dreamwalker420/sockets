@@ -25,3 +25,11 @@ Lab #3
 * Prevent malicious client attack with timers
 * Use a signal to kill server thread on timeout
 * Close client socket on timeout
+
+Lab #4
+* Implement a thread pool for workers to handle io tasks
+* Use a library to access thread pool
+* Implement a job queue (FIFO)
+* Ensure mutex properly functions to limit access to job queue
+* Create a test program to analyze use of thread pool
+* Submit files in tarball

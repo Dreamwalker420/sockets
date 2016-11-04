@@ -1,12 +1,14 @@
 # Don't bother with older versions
 /lab1/
 /lab2/
+/lab3/
 
 # Don't include documents
 /docs/
 
-# Don't upload Carver's files
+# Don't upload files from Carver or Ruble
 /carver/
+/ruble/
 
 # Don't upload test files
 /test*
