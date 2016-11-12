@@ -16,6 +16,7 @@
 # Don't upload executable files
 /*.exe
 /server/*.exe
+/lab4/*.exe
 
 # Ignore .bak these are back-up files
 *.bak

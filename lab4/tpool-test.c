@@ -73,9 +73,7 @@ int main (){
 // Return 0 on success, -1 on failure
 int process_task(){
 	// Identify this thread
-	#ifdef DEBUG
-		printf("Worker %ld is trying to process a task.\n", syscall(SYS_gettid));
-	#endif
+	printf("Worker %ld is ready to process a task.\n", syscall(SYS_gettid));
 
 	// Worker should attempt to do a job
 	
@@ -89,15 +87,14 @@ int process_task(){
 
 		// Check if there is a job available
 		if(jobs_queue.jobs_available > 0){
+			int file_descriptor = 0;
 			// Get pointer to next task
 			process_this_job = jobs_queue.next_job;
-
+			//file_descriptor = job_detail(process_this_job);
 			// Show task being handled by a worker thread
-			// printf("Worker (#%ld) attempting to complete job #%d\n", syscall(SYS_gettid), process_this_job.job_id);
-			int file_descriptor = 0;
+			printf("Worker %ld is processing task #%d.\n", syscall(SYS_gettid),file_descriptor);
 			// Pretend to do something for 15 seconds
 			sleep(15);
-
 			// Acknowledge task completed
 			printf("Task #%d completed.\n", file_descriptor);
 		}

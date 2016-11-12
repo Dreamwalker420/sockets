@@ -15,13 +15,15 @@
 
 #include <pthread.h>
 #include <sys/syscall.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 // Create global variable struct type for jobs in queue
 typedef struct jobs_object{
+	// Set point to the task
+	void *task_pointer;
 	// Set pointer to the last job in queue before adding to end of linked list
 	struct jobs_object *previous_job;
+	// Store file descriptor
 	int job_id;
 } jobs_object;
 
@@ -65,11 +67,12 @@ typedef struct tpool_object{
 int create_job_queue();
 int create_worker_thread(int pool_index);
 int destroy_thread_pool_resources();
+int job_detail(void *job_pointer);
 int tpool_init(void (*process_task)(int));
 
 // Global variables for the thread pool
+struct jobs_object *task;
 struct queue_object jobs_queue;
-// Create global variable struct to hold tpool object data
 struct tpool_object tpool;
 struct worker_thread_object *worker_threads;
 
@@ -170,6 +173,20 @@ int destroy_thread_pool_resources(){
 
 	return 0;
 }
+// End of destroy_thread_poo_resources()
+
+
+// Called by main to get job details
+// Accepts a pointer to a job
+// Returns the file descriptor on success, -1 on failure
+int job_detail(void *job_pointer){
+	// TODO: Clean this up?
+//	int file_descriptor = &job_pointer->job_id;
+//	return file_descriptor;
+	// If no file descriptor is obtained
+	// return -1;
+	return 0;
+}
 
 // Called by main to add tasks to the job queue
 // Accepts an integer (intended to be a file descriptor)
@@ -180,13 +197,16 @@ int tpool_add_task(int newtask){
 	#endif
 
 	// Create a new object for a job
-	struct jobs_object *task;
-	if((task = malloc(sizeof(struct jobs_object))) == NULL){
+	struct jobs_object task;
+	void *pointer_to_task;
+	if((pointer_to_task = malloc(sizeof(struct jobs_object))) == NULL){
 		fprintf(stderr, "Problem adding task #%d to the job queue.\n", newtask);
 		return -1;
 	}
+	// Record pointer to task
+	task.task_pointer = pointer_to_task;
 	// Record file descriptor
-	task->job_id = newtask;
+	task.job_id = newtask;
 	
 	// Add job to the queue
 	// Lock the job queue.  BLOCK until able to do so.
@@ -199,16 +219,16 @@ int tpool_add_task(int newtask){
 	if((jobs_queue.jobs_available) != 0){
 		// There is at least one job in the queue
 		// Add to the end of the linkd list
-		jobs_queue.next_job = task->previous_job;
+		jobs_queue.next_job = task.previous_job;
 		// Set task as end of the linked list
-		jobs_queue.latest_job = task;
+		jobs_queue.latest_job = task.task_pointer;
 	}
 	else{
 		// There are no jobs in the queue
 		// Start a linked list, place task at the front
-		jobs_queue.next_job = task;
+		jobs_queue.next_job = task.task_pointer;
 		// Set task as end of the linked list
-		jobs_queue.latest_job = task;
+		jobs_queue.latest_job = task.task_pointer;
 	}
 
 	// Increment jobs available
