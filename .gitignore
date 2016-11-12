@@ -13,11 +13,9 @@
 # Don't upload test files
 /test*
 
+# Use .exe extension for executable files to prevent uploading them
 # Don't upload executable files
-/*.exe
-/server/*.exe
-/lab4/*.exe
+*.exe
 
 # Ignore .bak these are back-up files
 *.bak
-/server/*.bak
