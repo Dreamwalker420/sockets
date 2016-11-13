@@ -42,7 +42,7 @@ int main (){
 
 	printf("Add 40 tasks to the job queue.\n");
 	// Add 40 tasks to the queue
-	for(int i=0;i<40;i++){
+	for(int i=1;i<=40;i++){
 		// Add a task to the job queue
 		// Call tpool_add_task() to add a task to job queue
 		if(tpool_add_task(i) == -1){
@@ -77,34 +77,40 @@ int process_task(){
 
 	// Worker should attempt to do a job
 	
-	// Pointer to next job to be processed
-	void *process_this_job;
 	// Find the the next task in the job queue
 	// Infinite loop, should always be looking for a new task
-	while(1){
+	while(jobs_queue.jobs_available > 0){
 		// Get next task, BLOCK until jobs_queue object is available to read from
 		// TODO: Need to use a mutex to access the job queue
 
-		// Check if there is a job available
-		if(jobs_queue.jobs_available > 0){
-			int file_descriptor = 0;
-			// Get pointer to next task
-			process_this_job = jobs_queue.next_job;
-			//file_descriptor = job_detail(process_this_job);
-			// Show task being handled by a worker thread
-			printf("Worker %ld is processing task #%d.\n", syscall(SYS_gettid),file_descriptor);
-			// Pretend to do something for 15 seconds
-			sleep(15);
-			// Acknowledge task completed
-			printf("Task #%d completed.\n", file_descriptor);
+		int file_descriptor = 0;
+		// Get file descriptor for next task
+		file_descriptor = (*jobs_queue.next_job).job_id;
+		// Show task being handled by a worker thread
+		printf("Worker %ld is processing task #%d.\n", syscall(SYS_gettid),file_descriptor);
+		// Pretend to do something for 15 seconds
+		sleep(15);
+
+		// Remove from job queue
+		jobs_queue.jobs_available--;
+
+		// Move to next task on linked list
+		if(((*jobs_queue.next_job).previous_job) != NULL){
+			jobs_queue.next_job = (*jobs_queue.next_job).previous_job;
+			// TODO: Free memory for this job	
 		}
 		else{
-			// If there are no jobs available, end the thread and exit
-			pthread_exit(NULL);
-			break;
+			// This was the last job in the queue
+			// TODO: Free memory for this job
 		}
-	}
 
+		// Acknowledge task completed
+		printf("Task #%d completed.\n", file_descriptor);
+		printf("Tasks Remaining #%d.\n", jobs_queue.jobs_available);
+	}
+	
+	// If there are no jobs available, end the thread and exit
+	pthread_exit(NULL);
 	// TODO: Should this be exit success here instead?
 	return 0;
 }

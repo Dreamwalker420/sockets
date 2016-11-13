@@ -17,11 +17,13 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+// TODO: Consider removal of pointers inside the struct objects for self identity
 // Create global variable struct type for jobs in queue
 typedef struct jobs_object{
-	// Set point to the task
+	// Set pointer to the task
 	void *task_pointer;
-	// Set pointer to the last job in queue before adding to end of linked list
+	// Set pointer to the next job in queue
+	// Set to NULL if last (only) job
 	struct jobs_object *previous_job;
 	// Store file descriptor
 	int job_id;
@@ -67,7 +69,6 @@ typedef struct tpool_object{
 int create_job_queue();
 int create_worker_thread(int pool_index);
 int destroy_thread_pool_resources();
-int job_detail(void *job_pointer);
 int tpool_init(void (*process_task)(int));
 
 // Global variables for the thread pool
@@ -97,9 +98,11 @@ int create_job_queue(){
 		return -1;		
 	}
 	// Attach the pointer to the job queue
-	jobs_queue.job_queue_pointer = queue_ptr;
+	jobs_queue.job_queue_pointer = &queue_ptr;
 	// Initialize with zero jobs
 	jobs_queue.jobs_available = 0;
+	jobs_queue.next_job = NULL;
+	jobs_queue.latest_job = NULL;
 	#ifdef DEBUG
 		printf("Job queue created.\n");
 		printf("Jobs Available: %d\n", jobs_queue.jobs_available);
@@ -127,7 +130,7 @@ int create_worker_thread(int pool_index){
 		return -1;	
 	}
 	// Record the pointer for the worker thread object
-	worker_thread.worker_pointer = worker_thread_pointer;
+	worker_thread.worker_pointer = &worker_thread_pointer;
 	// Record the pool index for the worker
 	worker_thread.worker_id = pool_index;
 	// Add to the tpool index
@@ -166,6 +169,8 @@ int destroy_thread_pool_resources(){
 
 	// TODO: Clear thread pool
 
+	// TODO: Clear mutexes
+
 	// Thread pool destroyed
 	#ifdef DEBUG
 		printf("THread pool destroyed.\n");
@@ -176,18 +181,6 @@ int destroy_thread_pool_resources(){
 // End of destroy_thread_poo_resources()
 
 
-// Called by main to get job details
-// Accepts a pointer to a job
-// Returns the file descriptor on success, -1 on failure
-int job_detail(void *job_pointer){
-	// TODO: Clean this up?
-//	int file_descriptor = &job_pointer->job_id;
-//	return file_descriptor;
-	// If no file descriptor is obtained
-	// return -1;
-	return 0;
-}
-
 // Called by main to add tasks to the job queue
 // Accepts an integer (intended to be a file descriptor)
 // Returns 0 on success, -1 on failure
@@ -196,39 +189,49 @@ int tpool_add_task(int newtask){
 		printf("Creating task #%d.\n", newtask);
 	#endif
 
-	// Create a new object for a job
-	struct jobs_object task;
-	void *pointer_to_task;
-	if((pointer_to_task = malloc(sizeof(struct jobs_object))) == NULL){
-		fprintf(stderr, "Problem adding task #%d to the job queue.\n", newtask);
-		return -1;
-	}
-	// Record pointer to task
-	task.task_pointer = pointer_to_task;
-	// Record file descriptor
-	task.job_id = newtask;
-	
-	// Add job to the queue
 	// Lock the job queue.  BLOCK until able to do so.
 	if(pthread_mutex_lock(&rwlock) != 0){
 		perror("Unable to lock job queue to add a task.");
 		return -1;
 	}
 
-	// Add to the queue
-	if((jobs_queue.jobs_available) != 0){
-		// There is at least one job in the queue
+	// Create a new object for a job
+	struct jobs_object new_task;
+	void *pointer_to_task;
+	if((pointer_to_task = malloc(sizeof(struct jobs_object))) == NULL){
+		fprintf(stderr, "Problem adding task #%d to the job queue.\n", newtask);
+		return -1;
+	}
+	// Record pointer to task
+	new_task.task_pointer = &pointer_to_task;
+	// Record file descriptor
+	new_task.job_id = newtask;
+	#ifdef DEBUG
+		printf("Task created for file descriptor #%d.\n", new_task.job_id);
+	#endif
+
+	// Add job to the queue
+	if(jobs_queue.jobs_available != 0){
+		#ifdef DEBUG
+			printf("Add to existing queue.\n");
+		#endif
+		// There is more than one job in the queue
+		// Set pointer for linked list to previous job
+		(*jobs_queue.latest_job).previous_job = new_task.task_pointer;
 		// Add to the end of the linkd list
-		jobs_queue.next_job = task.previous_job;
-		// Set task as end of the linked list
-		jobs_queue.latest_job = task.task_pointer;
+		jobs_queue.latest_job = new_task.task_pointer;
 	}
 	else{
+		#ifdef DEBUG
+			printf("Start new queue.\n");
+		#endif
 		// There are no jobs in the queue
 		// Start a linked list, place task at the front
-		jobs_queue.next_job = task.task_pointer;
+		jobs_queue.next_job = new_task.task_pointer;
 		// Set task as end of the linked list
-		jobs_queue.latest_job = task.task_pointer;
+		jobs_queue.latest_job = new_task.task_pointer;
+		// Set pointer for linked list to null
+		new_task.previous_job = NULL;
 	}
 
 	// Increment jobs available
@@ -240,7 +243,7 @@ int tpool_add_task(int newtask){
 		return -1;
 	}
 	#ifdef DEBUG
-		printf("Task #%d created.\n", newtask);
+		printf("Task #%d inserted into job queue.\n", newtask);
 	#endif
 
 	// Task added to job que
@@ -283,7 +286,7 @@ int tpool_init(void (*process_task)(int)){
 		return -1;
 	}
 	// Register thread pool pointer with global variable
-	tpool.thread_pool_pointer = tpool_ptr;
+	tpool.thread_pool_pointer = &tpool_ptr;
 
 	#ifdef DEBUG
 		printf("Thread pool started.\n");
