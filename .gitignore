@@ -15,7 +15,7 @@
 
 # Use .exe extension for executable files to prevent uploading them
 # Don't upload executable files
-#*.exe
+*.exe
 
 # Ignore .bak these are back-up files
 *.bak
