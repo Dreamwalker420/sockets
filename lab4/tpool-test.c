@@ -85,7 +85,7 @@ int process_task(){
 
 		int file_descriptor = 0;
 		// Get file descriptor for next task
-		file_descriptor = (*jobs_queue.next_job).job_id;
+		file_descriptor = (*jobs_queue.current_job).job_id;
 		// Show task being handled by a worker thread
 		printf("Worker %ld is processing task #%d.\n", syscall(SYS_gettid),file_descriptor);
 		// Pretend to do something for 15 seconds
@@ -95,8 +95,8 @@ int process_task(){
 		jobs_queue.jobs_available--;
 
 		// Move to next task on linked list
-		if(((*jobs_queue.next_job).previous_job) != NULL){
-			jobs_queue.next_job = (*jobs_queue.next_job).previous_job;
+		if(((*jobs_queue.current_job).next_job) != NULL){
+			jobs_queue.current_job = (*jobs_queue.current_job).next_job;
 			// TODO: Free memory for this job	
 		}
 		else{

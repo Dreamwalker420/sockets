@@ -24,7 +24,7 @@ typedef struct jobs_object{
 	void *task_pointer;
 	// Set pointer to the next job in queue
 	// Set to NULL if last (only) job
-	struct jobs_object *previous_job;
+	struct jobs_object *next_job;
 	// Store file descriptor
 	int job_id;
 } jobs_object;
@@ -36,7 +36,7 @@ typedef struct queue_object{
 	// Keep track of how many jobs in the queue
 	int jobs_available;
 	// Keep track of linked list of jobs
-	struct jobs_object *next_job;
+	struct jobs_object *current_job;
 	struct jobs_object *latest_job;
 } queue_object;
 
@@ -101,7 +101,7 @@ int create_job_queue(){
 	jobs_queue.job_queue_pointer = &queue_ptr;
 	// Initialize with zero jobs
 	jobs_queue.jobs_available = 0;
-	jobs_queue.next_job = NULL;
+	jobs_queue.current_job = NULL;
 	jobs_queue.latest_job = NULL;
 	#ifdef DEBUG
 		printf("Job queue created.\n");
@@ -197,13 +197,10 @@ int tpool_add_task(int newtask){
 
 	// Create a new object for a job
 	struct jobs_object new_task;
-	void *pointer_to_task;
-	if((pointer_to_task = malloc(sizeof(struct jobs_object))) == NULL){
+	if((new_task.task_pointer = malloc(sizeof(struct jobs_object))) == NULL){
 		fprintf(stderr, "Problem adding task #%d to the job queue.\n", newtask);
 		return -1;
 	}
-	// Record pointer to task
-	new_task.task_pointer = &pointer_to_task;
 	// Record file descriptor
 	new_task.job_id = newtask;
 	#ifdef DEBUG
@@ -216,9 +213,9 @@ int tpool_add_task(int newtask){
 			printf("Add to existing queue.\n");
 		#endif
 		// There is more than one job in the queue
-		// Set pointer for linked list to previous job
-		(*jobs_queue.latest_job).previous_job = new_task.task_pointer;
-		// Add to the end of the linkd list
+		// Set pointer for linked list to next job
+		(*jobs_queue.latest_job).next_job = new_task.task_pointer;
+		// Add to the end of the linked list
 		jobs_queue.latest_job = new_task.task_pointer;
 	}
 	else{
@@ -227,13 +224,13 @@ int tpool_add_task(int newtask){
 		#endif
 		// There are no jobs in the queue
 		// Start a linked list, place task at the front
-		jobs_queue.next_job = new_task.task_pointer;
+		jobs_queue.current_job = new_task.task_pointer;
 		// Set task as end of the linked list
 		jobs_queue.latest_job = new_task.task_pointer;
-		// Set pointer for linked list to null
-		new_task.previous_job = NULL;
 	}
 
+	// Set pointer for linked list to null
+	new_task.next_job = NULL;
 	// Increment jobs available
 	jobs_queue.jobs_available++;
 
