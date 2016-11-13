@@ -13,13 +13,13 @@
  *
  */
 
+#include <errno.h>
 #include <pthread.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
-// TODO: Consider removal of pointers inside the struct objects for self identity
 // Create global variable struct type for jobs in queue
-typedef struct jobs_object{
+struct jobs_object{
 	// Set pointer to the task
 	void *task_pointer;
 	// Set pointer to the next job in queue
@@ -27,10 +27,10 @@ typedef struct jobs_object{
 	struct jobs_object *next_job;
 	// Store file descriptor
 	int job_id;
-} jobs_object;
+};
 
 // Create global variable struct type for job queue for workers to access
-typedef struct queue_object{
+struct queue_object{
 	// Need to be able to point to the job queue
 	void *job_queue_pointer;
 	// Keep track of how many jobs in the queue
@@ -38,29 +38,31 @@ typedef struct queue_object{
 	// Keep track of linked list of jobs
 	struct jobs_object *current_job;
 	struct jobs_object *latest_job;
-} queue_object;
+};
 
 // Keep track of a mutex for read/write privilege on the queue
 pthread_mutex_t rwlock = PTHREAD_MUTEX_INITIALIZER;
 
 // Create global variable struct type for worker thread object
-typedef struct worker_thread_object{
+struct worker_thread_object{
 	// Pointer to this worker
 	void *worker_pointer;
 	// Pool index
 	int worker_id;
 	// Thread id
 	pthread_t worker_thread_id;
-} worker_thread_object;
+};
 
 // Create global variable struct type for thread pool object
 // TODO: Must include: task queue components, mutexes and condition variables, and the function process_task()
-typedef struct tpool_object{
+struct tpool_object{
 	// Need to be able to point to the thread pool	
 	void *thread_pool_pointer;
 	// Index of pointers to worker threads
 	struct worker_thread_object *worker_index;
-} tpool_object;
+	// Function for referencing in worker threads
+	void (*call_this_function)(int);
+};
 
 
 // Set maximum number of tasks per thread in job queue
@@ -69,16 +71,17 @@ typedef struct tpool_object{
 int create_job_queue();
 int create_worker_thread(int pool_index);
 int destroy_thread_pool_resources();
+void *my_little_worker_bee();
 int tpool_init(void (*process_task)(int));
 
 // Global variables for the thread pool
-struct jobs_object *task;
+// TODO: Do I need this?
+// struct jobs_object *task;
 struct queue_object jobs_queue;
 struct tpool_object tpool;
-struct worker_thread_object *worker_threads;
+// TODO: Do I need this?
+// struct worker_thread_object *worker_threads;
 
-// Global variable for the worker thread to process tasks
-void *call_this_function;
 
 /* --------------------------------------------------------------------------------------*/
 // Functions for tpool.c
@@ -91,14 +94,11 @@ int create_job_queue(){
 		printf("Creating a job queue for tasks.\n");
 	#endif
 
-	void *queue_ptr;
 	// Create a job queue object
-	if((queue_ptr = malloc(sizeof(struct queue_object))) == NULL){
+	if((jobs_queue.job_queue_pointer = malloc(sizeof(struct queue_object))) == NULL){
 		fprintf(stderr, "Memory allocation for job queue failed.\n");
 		return -1;		
 	}
-	// Attach the pointer to the job queue
-	jobs_queue.job_queue_pointer = &queue_ptr;
 	// Initialize with zero jobs
 	jobs_queue.jobs_available = 0;
 	jobs_queue.current_job = NULL;
@@ -124,13 +124,10 @@ int create_worker_thread(int pool_index){
 	#endif
 
 	struct worker_thread_object worker_thread;
-	void *worker_thread_pointer;
-	if((worker_thread_pointer = malloc(sizeof(struct worker_thread_object))) == NULL){
+	if((worker_thread.worker_pointer = malloc(sizeof(struct worker_thread_object))) == NULL){
 		fprintf(stderr, "Failure to allocate memory for a worker thread.\n");
 		return -1;	
 	}
-	// Record the pointer for the worker thread object
-	worker_thread.worker_pointer = &worker_thread_pointer;
 	// Record the pool index for the worker
 	worker_thread.worker_id = pool_index;
 	// Add to the tpool index
@@ -138,11 +135,12 @@ int create_worker_thread(int pool_index){
 	// tpool.worker_index[pool_index] = worker_thread_pointer;
 
 	// Create the thread
-	if(pthread_create(&worker_thread.worker_thread_id, NULL, call_this_function, NULL) != 0){
+	if(pthread_create(&worker_thread.worker_thread_id, NULL, my_little_worker_bee, NULL) != 0){
 		perror("Failure to create a worker thread.\n");
 		return -1;	
 	}
 	// TODO: Should I use pthread_detach here?
+	pthread_detach(worker_thread.worker_thread_id);
 
 	#ifdef DEBUG
 		printf("Worker thread #%d created.\n", pool_index + 1);
@@ -173,12 +171,80 @@ int destroy_thread_pool_resources(){
 
 	// Thread pool destroyed
 	#ifdef DEBUG
-		printf("THread pool destroyed.\n");
+		printf("Thread pool destroyed.\n");
 	#endif
 
 	return 0;
 }
 // End of destroy_thread_poo_resources()
+
+
+// Called by create_worker_thread()
+// Returns 0 on success, -1 on failure
+void *my_little_worker_bee(){
+	// Identify this thread
+	#ifdef DEBUG
+		printf("Worker %ld is ready to process a task.\n", syscall(SYS_gettid));
+	#endif
+
+	// Worker should attempt to do a job
+	
+	// Find the the next task in the job queue
+	// Infinite loop, should always be looking for a new task
+	while(1){
+		// Get next task, BLOCK until jobs_queue object is available to read from
+		if(jobs_queue.jobs_available > 0){
+			// TODO: Need to use a mutex to access the job queue
+
+			int file_descriptor = 0;
+			// Get file descriptor for next task
+			file_descriptor = (*jobs_queue.current_job).job_id;
+			// Show task being handled by a worker thread
+			#ifdef DEBUG
+				printf("Worker %ld is processing task #%d.\n", syscall(SYS_gettid),file_descriptor);
+				// Pretend to do something for 15 seconds
+				sleep(5);
+			#endif
+			
+			// Call the function to handle the client file descriptor
+			// TODO: Error check this?
+			tpool.call_this_function(file_descriptor);
+
+			// Remove from job queue
+			jobs_queue.jobs_available--;
+
+			// Move to next task on linked list
+			if(((*jobs_queue.current_job).next_job) != NULL){
+				// TODO: Create temporary location
+				struct jobs_object completed_task;
+				if((completed_task.task_pointer = malloc(sizeof(struct jobs_object))) == NULL){
+					fprintf(stderr, "Problem creating a temporary task.\n");
+				}
+				completed_task = (*jobs_queue.current_job);
+				jobs_queue.current_job = completed_task.next_job;
+				// Free memory for completed jobs
+				free(completed_task.task_pointer);
+			}
+			else{
+				// This was the last job in the queue
+				// TODO: Free memory for this job
+
+				// TODO: Should I break from the while loop here?
+			}
+
+			// Acknowledge task completed
+			#ifdef DEBUG
+				printf("Task #%d completed.\n", file_descriptor);
+				printf("Tasks Remaining #%d.\n", jobs_queue.jobs_available);
+			#endif
+		}
+	}
+	
+	// If there are no jobs available, end the thread and exit
+	pthread_exit(NULL);	
+	return 0;
+}
+// End of my_little_worker_bee()
 
 
 // Called by main to add tasks to the job queue
@@ -202,7 +268,9 @@ int tpool_add_task(int newtask){
 		return -1;
 	}
 	// Record file descriptor
-	new_task.job_id = newtask;
+	new_task.job_id = newtask + 10;
+	// Set pointer for next job in linked list to null, tasks always placed at the end of the list
+	new_task.next_job = NULL;
 	#ifdef DEBUG
 		printf("Task created for file descriptor #%d.\n", new_task.job_id);
 	#endif
@@ -229,19 +297,25 @@ int tpool_add_task(int newtask){
 		jobs_queue.latest_job = new_task.task_pointer;
 	}
 
-	// Set pointer for linked list to null
-	new_task.next_job = NULL;
 	// Increment jobs available
 	jobs_queue.jobs_available++;
+
+	#ifdef DEBUG
+		printf("------------------------------------------------\n");
+		printf("Task #%d inserted into job queue.\n", newtask);
+		printf("Verify tasks in the job queue:\n");
+		printf("Jobs Available: %d\n", jobs_queue.jobs_available);
+		printf("Current Job: %d\n", (*jobs_queue.current_job).job_id);
+		// TODO: Add while loop to iterate through current linked list to view each job
+		printf("Latest Job: %d\n", (*jobs_queue.latest_job).job_id);
+		printf("------------------------------------------------\n");
+	#endif
 
 	// Unlock the job queue
 	if(pthread_mutex_unlock(&rwlock) != 0){
 		perror("Unable to unlock job queue.");
 		return -1;
 	}
-	#ifdef DEBUG
-		printf("Task #%d inserted into job queue.\n", newtask);
-	#endif
 
 	// Task added to job que
 	return 0;
@@ -256,8 +330,6 @@ int tpool_init(void (*process_task)(int)){
 	#ifdef DEBUG
 		printf("Initialize thread pool.\n");
 	#endif
-
-	call_this_function = *process_task;
 
 	// Use a system call to determine the number of CPU cores available for thread pool size
 	long number_of_available_processing_cores = -1;
@@ -276,15 +348,13 @@ int tpool_init(void (*process_task)(int)){
 		printf("Maximum jobs in queue: %ld\n", MAX_JOBS);
 	#endif
 
-	void *tpool_ptr;
 	// Create the thread pool object
-	if((tpool_ptr = malloc(sizeof(struct tpool_object))) == NULL){
+	if((tpool.thread_pool_pointer = malloc(sizeof(struct tpool_object))) == NULL){
 		fprintf(stderr, "Unable to allocate memoery for a thread pool.\n");
 		return -1;
 	}
-	// Register thread pool pointer with global variable
-	tpool.thread_pool_pointer = &tpool_ptr;
-
+	// Store the function to be used by workers
+	tpool.call_this_function = process_task;
 	#ifdef DEBUG
 		printf("Thread pool started.\n");
 	#endif
@@ -302,14 +372,12 @@ int tpool_init(void (*process_task)(int)){
 
 	// Make threads for the pool
 	// Track pointers to worker threads in the pool
-	void *pointer_to_worker_threads;
-	if((pointer_to_worker_threads = malloc(MAX_THREADS * sizeof(struct worker_thread_object*))) == NULL){
+	if((tpool.worker_index = malloc(MAX_THREADS * sizeof(struct worker_thread_object*))) == NULL){
 		fprintf(stderr, "Unable to allocate memeory for index of threads.\n");
 		free(jobs_queue.job_queue_pointer);
 		free(tpool.thread_pool_pointer);
 		return -1;		
 	}
-	tpool.worker_index = pointer_to_worker_threads;
 	#ifdef DEBUG
 		printf("Create worker threads.\n");
 	#endif
