@@ -20,10 +20,7 @@
 
 // Create global variable struct type for jobs in queue
 struct jobs_object{
-	// Set pointer to the task
-	void *task_pointer;
-	// Set pointer to the next job in queue
-	// Set to NULL if last (only) job
+	// Set pointer to the next job in queue. Set to NULL if last/only job
 	struct jobs_object *next_job;
 	// Store file descriptor
 	int job_id;
@@ -205,17 +202,17 @@ int tpool_add_task(int newtask){
 	pthread_mutex_lock(&rwlock);
 
 	// Create a new object for a job
-	struct jobs_object new_task;
-	if((new_task.task_pointer = malloc(sizeof(struct jobs_object))) == NULL){
+	struct jobs_object *new_task;
+	if((new_task = malloc(sizeof(struct jobs_object))) == NULL){
 		fprintf(stderr, "Problem adding task #%d to the job queue.\n", newtask);
 		return -1;
 	}
 	// Record file descriptor
-	new_task.job_id = newtask;
+	new_task->job_id = newtask;
 	// Set pointer for next job in linked list to null, tasks always placed at the end of the list
-	new_task.next_job = NULL;
+	new_task->next_job = NULL;
 	#ifdef DEBUG
-		printf("Task created for file descriptor #%d.\n", new_task.job_id);
+		printf("Task created for file descriptor #%d.\n", new_task->job_id);
 	#endif
 
 	// Add job to the queue
@@ -225,9 +222,9 @@ int tpool_add_task(int newtask){
 		#endif
 		// There is more than one job in the queue
 		// Set pointer for linked list to next job
-		jobs_queue.latest_job->next_job = &new_task;
+		jobs_queue.latest_job->next_job = new_task;
 		// Add to the end of the linked list
-		jobs_queue.latest_job = &new_task;
+		jobs_queue.latest_job = new_task;
 	}
 	else{
 		#ifdef DEBUG
@@ -235,9 +232,9 @@ int tpool_add_task(int newtask){
 		#endif
 		// There are no jobs in the queue
 		// Start a linked list, place task at the front
-		jobs_queue.current_job = &new_task;
+		jobs_queue.current_job = new_task;
 		// Set task as end of the linked list
-		jobs_queue.latest_job = &new_task;
+		jobs_queue.latest_job = new_task;
 	}
 
 	// Increment jobs available
