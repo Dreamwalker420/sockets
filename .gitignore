@@ -12,6 +12,7 @@
 
 # Don't upload test files
 /test*
+/lab4/test*
 
 # Use .exe extension for executable files to prevent uploading them
 # Don't upload executable files
