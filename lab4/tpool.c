@@ -15,6 +15,8 @@
 
 #include <errno.h>
 #include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -39,7 +41,6 @@ struct queue_object{
 pthread_mutex_t rwlock = PTHREAD_MUTEX_INITIALIZER;
 
 // Create global variable struct type for thread pool object
-// TODO: Must include: task queue components, mutexes and condition variables, and the function process_task()
 struct tpool_object{
 	// Function for referencing in worker threads
 	void (*call_this_function)(int);
@@ -78,7 +79,6 @@ int create_worker_thread(int pool_index){
 		perror("Failure to create a worker thread.\n");
 		return -1;	
 	}
-	// TODO: Should I use pthread_detach here?
 	pthread_detach(worker_thread);
 
 	#ifdef DEBUG
@@ -94,13 +94,13 @@ int create_worker_thread(int pool_index){
 // Called by main to destroy thread pool
 // Returns 0 on success, -1 on failure
 int destroy_thread_pool_resources(){
+	// This was not specified in the instructions.
+
 	// TODO: Check if it exists?
 
-	// TODO: End threads still alive
+	// TODO: Clear jobs
 
 	// TODO: Clear jobs_queue
-
-	// TODO: Clear jobs
 
 	// TODO: Clear threads
 
@@ -146,7 +146,7 @@ void *my_little_worker_bee(){
 			// Move to next task on linked list
 			if((jobs_queue.current_job->next_job) != NULL){
 				jobs_queue.current_job = jobs_queue.current_job->next_job;
-				// TODO: Do I need to deallocate memory for the completed task
+				// TODO: Do I need to deallocate memory for the completed task?
 			}
 			// If this was the last job in the queue, it doesn't matter for the worker thread.  It will continue in an infinite loop.
 
@@ -236,7 +236,6 @@ int tpool_add_task(int newtask){
 		printf("Task #%d inserted into job queue.\n", newtask);
 		printf("Verify tasks in the job queue: %d jobs available.\n", jobs_queue.jobs_available);
 		printf("Current Job: %d\n", jobs_queue.current_job->job_id);
-		// TODO: Add while loop to iterate through current linked list to view each job
 		printf("Latest Job: %d\n", jobs_queue.latest_job->job_id);
 		printf("------------------------------------------------\n");
 	#endif
@@ -269,10 +268,10 @@ int tpool_init(void (*process_task)(int)){
 	// This is not necessary but makes the code more readable
 	#define MAX_THREADS number_of_available_processing_cores 
 	// Set maximum number of jobs in queue (available threads * tasks per thread + 1)
+	// TODO: Do something with this?
 	#define MAX_JOBS MAX_THREADS * INIT_TASKS_PER_THREAD + 1
 	#ifdef DEBUG
 		printf("Maximum threads available: %ld\n", MAX_THREADS);
-		// TODO: Do something with this?
 		printf("Maximum jobs in queue: %ld\n", MAX_JOBS);
 	#endif
 

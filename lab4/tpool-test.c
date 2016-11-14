@@ -19,8 +19,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-// TODO: create a header file for thread pools 
-#include "tpool.c"
+#include <tpool.h>
 
 void test_process_task(int file_descriptor);
 
