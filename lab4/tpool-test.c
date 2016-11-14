@@ -2,6 +2,17 @@
  * CS 407 - Lab 4
  * November 4, 2016
  * 
+ * Build library files using:
+ * Create object file from C source code (tpool.o)
+ * gcc -c tpool.c
+ * Create static library from object file
+ * ar -cr tpool.a tpool.o
+ * Create position independent code for an object file for shared library
+ * This requires a new tpool.o
+ * gcc -c -fpic tpool.c
+ * [gcc -c -fPIC tpool.c] may be necessry
+ * gcc -shared -o tpool.so tpool.o
+ *
  * Compile Using this format:
  * $ gcc -Wall tpool-test.c -o tpool-test.exe -pthread
  * $ gcc -o tpool-test.exe tpool-test.c -pthread -L/home/dreamwalker/Documents/School/CS407/lab4/tpool.so -I /home/dreamwalker/Documents/School/CS407/lab4
