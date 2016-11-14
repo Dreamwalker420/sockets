@@ -53,6 +53,7 @@ struct tpool_object{
 int create_worker_thread(int pool_index);
 int destroy_thread_pool_resources();
 void *my_little_worker_bee();
+int tpool_add_task(int newtask);
 int tpool_init(void (*process_task)(int));
 
 // Global variables for the thread pool

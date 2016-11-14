@@ -4,7 +4,7 @@
  * 
  * Compile Using this format:
  * $ gcc -Wall tpool-test.c -o tpool-test.exe -pthread
- *
+ * $ gcc -o tpool-test.exe tpool-test.c -pthread -L/home/dreamwalker/Documents/School/CS407/lab4/tpool.so -I /home/dreamwalker/Documents/School/CS407/lab4
  *
  * Sources:
  	CS407 Lab Solutions by NJ Carver
@@ -19,7 +19,8 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <tpool.h>
+//#include <tpool.h>
+#include "tpool.c"
 
 void test_process_task(int file_descriptor);
 
@@ -44,17 +45,18 @@ int main (){
 	}
 
 	// Process all the jobs in the queue
-	while(jobs_queue.jobs_available > 0){
+	while(1){
 
 	}
 
 	// No more jobs in queue, end thread pool
 	// TODO: Destroy thread pool upon job completion
 	// TODO: Move this to the tpool.c?
-	if(destroy_thread_pool_resources() != 0){
-		fprintf(stderr, "Problem destroying the thread pool resources.\n");
-	}
+	// if(destroy_thread_pool_resources() != 0){
+	// 	fprintf(stderr, "Problem destroying the thread pool resources.\n");
+	// }
 
+	// Sould never get here
 	exit(EXIT_SUCCESS);
 }
 // End of main()

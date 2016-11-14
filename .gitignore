@@ -20,3 +20,6 @@
 
 # Ignore .bak these are back-up files
 *.bak
+
+# Ignore .tgz zipped files for assignments
+*.tgz
