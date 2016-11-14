@@ -133,53 +133,44 @@ void *my_little_worker_bee(){
 	while(1){
 		// Get next task, BLOCK until jobs_queue object is available to read from
 		if(jobs_queue.jobs_available > 0){
-			// // Use a mutex to access the job queue
-			// pthread_mutex_lock(&rwlock);
+			// Use a mutex to access the job queue
+			pthread_mutex_lock(&rwlock);
 			
-			// int file_descriptor = 0;
-			// // Get file descriptor for next task
-			// file_descriptor = (*jobs_queue.current_job).job_id;
-			// // Show task being handled by a worker thread
-			// #ifdef DEBUG
-			// 	printf("Worker %ld is processing task #%d.\n", syscall(SYS_gettid),file_descriptor);
-			// 	// Pretend to do something for 15 seconds
-			// 	sleep(5);
-			// #endif
+			// Get file descriptor for next task
+			int file_descriptor = jobs_queue.current_job->job_id;
+			// Show task being handled by a worker thread
+			#ifdef DEBUG
+				printf("Worker %ld is processing task #%d.\n", syscall(SYS_gettid),file_descriptor);
+			#endif
 			
-			// // Remove from job queue
-			// jobs_queue.jobs_available--;
+			// Move to next task on linked list
+			if((jobs_queue.current_job->next_job) != NULL){
+				jobs_queue.current_job = jobs_queue.current_job->next_job;
+				// TODO: Do I need to deallocate memory for the completed task
+			}
+			// If this was the last job in the queue, it doesn't matter for the worker thread.  It will continue in an infinite loop.
 
-			// // Move to next task on linked list
-			// if(((*jobs_queue.current_job).next_job) != NULL){
-			// 	// TODO: Create temporary location
-			// 	struct jobs_object completed_task;
-			// 	if((completed_task.task_pointer = malloc(sizeof(struct jobs_object))) == NULL){
-			// 		fprintf(stderr, "Problem creating a temporary task.\n");
-			// 	}
-			// 	completed_task = (*jobs_queue.current_job);
-			// 	jobs_queue.current_job = completed_task.next_job;
-			// 	// Free memory for completed jobs
-			// 	// TODO: Delete this?
-			// 	//free(completed_task.task_pointer);
-			// }
-			// else{
-			// 	// This was the last job in the queue
-			// 	// TODO: Free memory for this job
+			// Remove from job queue
+			jobs_queue.jobs_available--;
+			// Track remaining jobs for testing
+			#ifdef DEBUG
+				int available_jobs = jobs_queue.jobs_available;
+			#endif
 
-			// 	// TODO: Should I break from the while loop here?
-			// }
+			// Unlock the job queue
+			pthread_mutex_unlock(&rwlock);
 
-			// // Acknowledge task completed
-			// #ifdef DEBUG
-			// 	printf("Task #%d completed.\n", file_descriptor);
-			// 	printf("Tasks Remaining %d.\n", jobs_queue.jobs_available);
-			// #endif
+			// Call the function to handle the client file descriptor
+			// There is no error check for this
+			tpool.call_this_function(file_descriptor);
 
-			// pthread_mutex_unlock(&rwlock);
-
-			// // Call the function to handle the client file descriptor
-			// // There is no error check for this
-			// tpool.call_this_function(file_descriptor);
+			// Acknowledge task completed
+			#ifdef DEBUG
+				// Pretend to do something for 5 seconds
+				sleep(5);
+				printf("Task #%d completed.\n", file_descriptor);
+				printf("Tasks Remaining %d.\n", available_jobs);
+			#endif
 		}
 	}
 	
