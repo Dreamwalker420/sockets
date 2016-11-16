@@ -77,7 +77,7 @@ int add_job(int file_descriptor){
 				// Reallocate the size of the queue
 				jobs_queue.buffer_length = jobs_queue.buffer_length * 2;
 				printf("New buffer size? %lu\n", jobs_queue.buffer_length);
-				int *temp_buffer = realloc(jobs_queue.queue_buffer,sizeof(jobs_queue.buffer_length));
+				int *temp_buffer = realloc(jobs_queue.queue_buffer,sizeof(int)*jobs_queue.buffer_length));
 				jobs_queue.queue_buffer = temp_buffer;
 				printf ("Expanded the job queue.\n");
 				if(jobs_queue.current_job > jobs_queue.latest_job){
