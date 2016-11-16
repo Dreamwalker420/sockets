@@ -2,9 +2,10 @@
  * CS 407 - Lab 4
  * November 4, 2016
  * 
- * Compile Using this format:
- * $ gcc -Wall tpool-test.c -o tpool-test.exe -pthread
- *
+ * Compile Using Debug:
+ * $ gcc -Wall -Wextra -pedantic tpool-test.c -o tpool-test.exe -pthread
+ * Otherwise, compile:
+ * $ gcc -o tpool-test.exe tpool-test.c -pthread
  *
  * Sources:
  	CS407 Lab Solutions by NJ Carver

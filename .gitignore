@@ -23,3 +23,6 @@
 
 # Ignore .tgz zipped files for assignments
 *.tgz
+
+# Garbage collection between jobs
+/deleted/ 
