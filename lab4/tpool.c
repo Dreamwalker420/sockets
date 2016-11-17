@@ -3,7 +3,7 @@
  * November 4, 2016
  * 
  * Compile Using Debug:
- * $ gcc -Wall -Wextra -pedantic tpool-test.c -o tpool-test.exe -pthread
+ * $ gcc -Wall -Wextra -Werror -pedantic tpool-test.c -o tpool-test.exe -pthread
  * Otherwise, compile:
  * $ gcc -o tpool-test.exe tpool-test.c -pthread
  *
@@ -254,7 +254,7 @@ int tpool_add_task(int newtask){
 	jobs_queue.jobs_available++;
 	pthread_mutex_unlock(&process_lock);
 	// Send a signal to condition variable that there is a job in the queue to process
-	pthread_cond_broadcast(&job_count);
+	pthread_cond_signal(&job_count);
 
 	#ifdef DEBUG
 		printf("------------------------------------------------\n");
