@@ -9,8 +9,12 @@
  *
  */
 
-int create_worker_thread(int pool_index);
+typedef struct queue_object queue_object_t;
+typedef struct tpool_object tpool_object_t;
+
+static int create_jobs_queue(int max_jobs);
+static int create_worker_thread(int pool_index);
 int destroy_thread_pool_resources();
-void *my_little_worker_bee();
+static void *my_little_worker_bee();
 int tpool_add_task(int newtask);
 int tpool_init(void (*process_task)(int));

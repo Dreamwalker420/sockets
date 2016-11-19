@@ -2,20 +2,28 @@
  * CS 407 - Lab 4
  * November 4, 2016
  * 
+ * Before building the library files, be sure to:
+ 	1. Comment out line #31 DEBUG
+ 	2. Uncomment line # to include <tpool.h>
+ 	3. Comment out line #
+ *
+ *
  * Build library files using:
- * Create object file from C source code (tpool.o)
- * gcc -c tpool.c
- * Create static library from object file
- * ar -cr tpool.a tpool.o
- * Create position independent code for an object file for shared library
- * This requires a new tpool.o
- * gcc -c -fpic tpool.c
- * [gcc -c -fPIC tpool.c] may be necessry
- * gcc -shared -o tpool.so tpool.o
+   Create object file from C source code (tpool.o)
+     $ gcc -c tpool.c
+   Create static library from object file
+     $ ar -cr tpool.a tpool.o
+   Create position independent code for an object file for shared library
+   This requires a new tpool.o
+     $ gcc -c -fpic tpool.c
+     --> [gcc -c -fPIC tpool.c] may be necessry instead
+     $ gcc -shared -o tpool.so tpool.o
+ *
  *
  * Compile Using this format:
- * $ gcc -Wall tpool-test.c -o tpool-test.exe -pthread
- * $ gcc -o tpool-test.exe tpool-test.c -pthread -L/home/dreamwalker/Documents/School/CS407/lab4/tpool.so -I /home/dreamwalker/Documents/School/CS407/lab4
+     $ gcc -o tpool-test.exe tpool-test.c -pthread
+     $ gcc -o tpool-test.exe tpool-test.c -pthread -L/home/dreamwalker/Documents/School/CS407/lab4/tpool.so -I /home/dreamwalker/Documents/School/CS407/lab4
+ *
  *
  * Sources:
  	CS407 Lab Solutions by NJ Carver
@@ -31,7 +39,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 //#include <tpool.h>
-#include "tpool.c"
+#include "tpool.h"
 
 void test_process_task(int file_descriptor);
 
