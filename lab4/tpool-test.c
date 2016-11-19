@@ -2,27 +2,27 @@
  * CS 407 - Lab 4
  * November 4, 2016
  * 
- * Before building the library files, be sure to:
- 	1. Comment out line #31 DEBUG
- 	2. Uncomment line # to include <tpool.h>
- 	3. Comment out line #
  *
  *
- * Build library files using:
-   Create object file from C source code (tpool.o)
-     $ gcc -c tpool.c
-   Create static library from object file
-     $ ar -cr tpool.a tpool.o
-   Create position independent code for an object file for shared library
-   This requires a new tpool.o
-     $ gcc -c -fpic tpool.c
-     --> [gcc -c -fPIC tpool.c] may be necessry instead
-     $ gcc -shared -o tpool.so tpool.o
+ * Link object files and execute using:
+	$ gcc -c tpool.c tpool-test.c
+	$ gcc -o tpool-test.exe tpool.o tpool-test.o -pthread
+	$ ./tpool-test.exe
  *
  *
- * Compile Using this format:
-     $ gcc -o tpool-test.exe tpool-test.c -pthread
-     $ gcc -o tpool-test.exe tpool-test.c -pthread -L/home/dreamwalker/Documents/School/CS407/lab4/tpool.so -I /home/dreamwalker/Documents/School/CS407/lab4
+ * Build static library using:
+ 	$ gcc -c tpool.c tpool-test.c
+ 	$ ar -cr tpool.a tpool.o tpool-test.o
+ 	$ gcc -o tpool-test.exe tpool.a -pthread
+ 	$ ./tpool-test.exe
+ *
+ *
+ * Build shared library using:
+ 	$ gcc -c -fpic tpool.c
+ 		gcc -c -fPIC tpool.c [Guaranteed to work but less efficient per Dr. Carver]
+ 	$ gcc -shared -o libtpool.so tpool.o
+ 	$ gcc -L/home/dreamwalker/Documents/School/CS407/lab4 -o tpool-test.exe tpool-test.c -ltpool -pthread
+ 	$ ./tpool-test.exe
  *
  *
  * Sources:
@@ -38,7 +38,6 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-//#include <tpool.h>
 #include "tpool.h"
 
 void test_process_task(int file_descriptor);
