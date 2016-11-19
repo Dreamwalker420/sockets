@@ -2,10 +2,6 @@
  * CS 407 - Lab 4
  * November 4, 2016
  * 
- * Compile Using Debug:
- * $ gcc -Wall -Wextra -Werror -pedantic tpool-test.c -o tpool-test.exe -pthread
- * Otherwise, compile:
- * $ gcc -o tpool-test.exe tpool-test.c -pthread
  *
  * Sources:
  	CS407 Lab Solutions by NJ Carver
