@@ -117,13 +117,13 @@ int main(){
 	}
 
 
-	// TODO: Set SIGCHLD to ignore auto discard child process and no clean-up reuired
-
-
 	// TODO: Set SIGPIPE to ignore to ensure write to a closed socket does not terminate the server
 
 
 	// TODO: Consider a handler for the timer alarm here
+	// TODO: Use memset to clear space for a struct
+
+	// TODO: pthread_attr_init goes here
 
 	// Begin accepting new clients
 	#ifdef DEBUG
@@ -174,6 +174,7 @@ int main(){
 	// CTRL-C in the terminal will stop the server from running
 
 	// Should never get here ...
+	// TODO: maybe return exit(failure?)
 	exit(EXIT_FAILURE);
 }
 // End of Main
@@ -233,6 +234,7 @@ int create_server_socket(){
 	int i = 1;
 
 	// Create server socket
+	// TODO: Need sock_cloexec here
 	if((server_sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1){
 		perror("Server: Unable to create server socket.");
 		return -1;
@@ -253,6 +255,7 @@ int create_server_socket(){
 	}
 
 	// Disable Nagle buffer algorithm, speed up transfer
+	// TODO: Re-evaluate if this is necessary
 	if(setsockopt(server_sockfd, IPPROTO_TCP, TCP_NODELAY, &i, sizeof(i)) == -1){
 		perror("Server: Problem with TCP setting.");
 		return -1;
@@ -265,6 +268,7 @@ int create_server_socket(){
 	}
 
 	// Assign server to listen on the socket
+	// TODO: Re-evaluate why I chose 10 here?
 	if(listen(server_sockfd, 10) == -1){
 		perror("Server: Unable to listen on server socket.");
 		return -1;
@@ -289,6 +293,7 @@ void *handle_client(void *arg){
 	pid_t cpid;
 
 	// Call protocol_exchange()
+	// TODO: Check for open client socket
 	if(protocol_exchange(connect_fd) == -1){
 		fprintf(stderr, "Server: Unable to complete protocol exchange with client.");
 		pthread_exit(NULL);
@@ -307,6 +312,7 @@ void *handle_client(void *arg){
 	}
 
 	// Create pseudoterminal for bash to execute on
+	// TODO: Check for open client socket
 	if((master_fd = create_pty(pty_slave_name)) == -1){
 		perror("Server: Unable to create PTY. Cancelled client connection.");
 		pthread_exit(NULL);
@@ -320,6 +326,7 @@ void *handle_client(void *arg){
 	switch(cpid = fork()){
 		case -1:
 			perror("Server: Unable to create sub-process for Bash to execute in.");
+			// TODO: Check for open client socket
 			exit(EXIT_FAILURE);
 		case 0:
 			// This is creating a sub-process with inheritance of file descriptors
@@ -328,6 +335,7 @@ void *handle_client(void *arg){
 			#endif
 
 			// The PTY Master file descriptor is not needed in the server sub-process
+			// TODO: Check for open client socket
 			close(master_fd);
 
 			// Do stuff and then exec Bash
@@ -372,6 +380,8 @@ void *handle_client(void *arg){
 
 	// Terminate server thread for handling client connection
 	pthread_exit(NULL);
+
+	// TODO: No return value here? sb NULL
 }
 // End of handle_client()
 
@@ -436,6 +446,7 @@ void *handle_epoll(void * _){
 					}while(total < nread);
 				}
 				// TODO: There is a problem here, need to reset the errno and handle nread = 0
+				// TODO: Also remove the client on these errors
 				// Handle errors from io
 				if(errno != EWOULDBLOCK && errno != EAGAIN){
 					perror("Server: Unable to read output.");
@@ -515,6 +526,7 @@ int protocol_exchange(int connect_fd){
 	char *confirm_protocol = "<ok>\n";
 
 	// Timer need only expire once
+	// TODO: These may be unnecessary, especially with memset
 	ts.it_interval.tv_sec = 0;
 	ts.it_interval.tv_nsec = 0;
 	// Timer should be 5 seconds
@@ -522,6 +534,7 @@ int protocol_exchange(int connect_fd){
     ts.it_value.tv_nsec = 0;
 
 	// Sends signal to terminate if it exceeds the timer limit
+	// TODO: Move to main, once it is set this is redundant code
 	sa.sa_flags = SA_SIGINFO;
 	sa.sa_sigaction = &signal_handler;
 	sigemptyset(&sa.sa_mask);
@@ -533,6 +546,7 @@ int protocol_exchange(int connect_fd){
     // Notify by thread
 	sevp.sigev_notify = SIGEV_THREAD_ID;
 	sevp.sigev_signo = SIGRTMAX;
+	// TODO: consider SYS_gettid here
 	sevp._sigev_un._tid = syscall(__NR_gettid);
 	sevp.sigev_value.sival_int = connect_fd;
 
@@ -567,6 +581,8 @@ int protocol_exchange(int connect_fd){
 
 	// Verify client shared secret
 	if((nread = read(connect_fd,from_client,512)) == -1){
+		// TODO: Change how the error is handled here
+		// TODO: Check other read error handling in the server
 		perror("Server: Error reading from client.");
 		return -1;
 	}
@@ -587,12 +603,14 @@ int protocol_exchange(int connect_fd){
 	}
 
 	// Confirm shared secret
+	// TODO: Consider moving to the completion of the handle client after Bash has forked
 	if((nwrite = write(connect_fd, confirm_protocol, strlen(confirm_protocol))) == -1){
 		perror("Server: Error notifying client of confirmed shared secret.");
 		return -1;
 	} 
 
 	// Turn off the signal notification after protocol exchange
+	// TODO: Is this necessary?
 	if(signal(SIGRTMAX, SIG_IGN) == SIG_ERR){
 		perror("Server: Unable to turn off signal notification.");
 		// TODO: Consider removing this.  This may be unnecessary
@@ -650,6 +668,7 @@ void run_pty_shell(char *pty_slave_name, int connect_fd){
 	execlp("bash", "bash", NULL);
 
 	// Handle error code from Bash failure
+	// TODO: Should I really terminate the process here?
 	perror("Server: Unable to execute Bash in terminal.");
 	exit(EXIT_FAILURE);
 }
@@ -677,6 +696,7 @@ int set_socket_to_non_block(int socket_fd){
 
 
 // Handle signals during protocol exchange
+// TODO: Evaluate why this needs to do so much
 void signal_handler(int sig, siginfo_t *si, void *uc){
 	#ifdef DEBUG
 		printf("Signal Called!\n");
