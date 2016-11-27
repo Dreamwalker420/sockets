@@ -53,9 +53,6 @@
 #define MAX_SNAME 1000
 // Set buffer size for communications between Bash and PTY
 #define BUFFER_SIZE 4096
-// Set the maximum number of events for epoll to handle
-// TODO: Why?  Why not make this a large enough number to handle a lot of clients?
-#define MAX_EVENTS 15
 // Set the clock to be used by timer
 #define CLOCKID CLOCK_REALTIME
 // Set a limit on the epoll
@@ -64,10 +61,11 @@
 // Declare functions
 int create_pty(char *pty_slave_name);
 int create_server_socket();
+void destroy_connection(int read_fd, int write_fd);
 void *handle_client(void *arg);
 void *handle_epoll(void *);
 int protocol_exchange(int connect_fd);
-void run_pty_shell(char *pty_slave_name, int connect_fd);
+void run_pty_shell(char *pty_slave_name);
 int set_socket_to_non_block(int socket_fd);
 void signal_handler(int sig, siginfo_t *si, void *uc);
 
@@ -95,10 +93,9 @@ int main(){
 	}
 
 	// Ignore when a child process closes
-	if(signal(SIGCHLD, SIG_IGN) == SIG_ERR){
-		perror("Server: Unable to ignore children.");
-		exit(EXIT_FAILURE);
-	}
+	signal(SIGCHLD, SIG_IGN);
+	// Ensure write to a closed socket doesn't terminate server
+	signal(SIGPIPE,SIG_IGN);
 
 	#ifdef DEBUG
 		printf("Server preparing ePoll API ...\n");
@@ -116,14 +113,12 @@ int main(){
 		exit(EXIT_FAILURE);
 	}
 
-
-	// TODO: Set SIGPIPE to ignore to ensure write to a closed socket does not terminate the server
-
-
 	// TODO: Consider a handler for the timer alarm here
 	// TODO: Use memset to clear space for a struct
 
+
 	// TODO: pthread_attr_init goes here
+
 
 	// Begin accepting new clients
 	#ifdef DEBUG
@@ -135,9 +130,11 @@ int main(){
 		// Important!! --> Server blocks on accept4() call.
 		// Do not make client socket non-blocking until after protocol exchange
 		if((client_sockfd = accept4(server_sockfd, (struct sockaddr *) NULL, NULL, SOCK_CLOEXEC)) != -1){
-			// Notify server and continue listening for new clients
-			
-			// TODO: Check for maximum clients
+			// Check for maximum clients
+			if(client_sockfd >= MAX_CLIENTS * 2 + 5){
+				close(client_sockfd);
+				break;
+			}
 
 			#ifdef DEBUG
 				printf("Processing new client ...\n");
@@ -160,7 +157,7 @@ int main(){
 				perror("Server: Unable to detach thread, Kernel still listening for it..");
 			}
 
-			// Continue to accept new clients
+			// Notify server and continue listening for new clients
 			#ifdef DEBUG
 				printf("Server waiting ...\n");
 			#endif
@@ -230,34 +227,24 @@ int create_pty(char *pty_slave_name){
 // Returns a server socket file descriptor on success
 int create_server_socket(){
 	int server_sockfd;
+	int optval = 0; // Used in setsockopt to disable argument
 	struct sockaddr_in server_address;
-	int i = 1;
-
+	memset(&server_address, 0, sizeof(server_address));
+	
 	// Create server socket
-	// TODO: Need sock_cloexec here
-	if((server_sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1){
+	// Need sock_cloexec here
+	if((server_sockfd = socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)) == -1){
 		perror("Server: Unable to create server socket.");
 		return -1;
 	}
-
-	// Carver uses this in lab #2 solution
-	// Set up server adress struct, zero-out anything that might be there
-	memset(&server_address,0,sizeof(server_address));
 
 	server_address.sin_family = AF_INET;
 	server_address.sin_addr.s_addr = htonl(INADDR_ANY);
 	server_address.sin_port = htons(PORT);
 
 	// Allow kernel to begin using the port again when server terminated
-	if(setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEADDR, &i, sizeof(i)) == -1){
+	if(setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1){
 		perror("Server: Unable to inform kernel to reuse server socket.");
-		return -1;
-	}
-
-	// Disable Nagle buffer algorithm, speed up transfer
-	// TODO: Re-evaluate if this is necessary
-	if(setsockopt(server_sockfd, IPPROTO_TCP, TCP_NODELAY, &i, sizeof(i)) == -1){
-		perror("Server: Problem with TCP setting.");
 		return -1;
 	}
 
@@ -268,8 +255,13 @@ int create_server_socket(){
 	}
 
 	// Assign server to listen on the socket
-	// TODO: Re-evaluate why I chose 10 here?
-	if(listen(server_sockfd, 10) == -1){
+		// $ man listen
+		// If the backlog argument is greater than the value in
+		// /proc/sys/net/core/somaxconn, then it is silently truncated to that
+		// value; the default value in this file is 128.  In kernels before
+		// 2.4.25, this limit was a hard coded value, SOMAXCONN, with the value
+		// 128.
+	if(listen(server_sockfd, 128) == -1){
 		perror("Server: Unable to listen on server socket.");
 		return -1;
 	}
@@ -278,6 +270,28 @@ int create_server_socket(){
 }
 // End of create_server_socket
 
+
+// Called by epoll loop
+// Accepts a client socket file descriptor
+void destroy_connection(int read_fd, int write_fd){
+	#ifdef DEBUG
+		printf("Problem handling client.  Closing file descriptors %d and %d\n", read_fd, write_fd);
+	#endif
+
+	// Need to remove client file descriptor pair from epoll event list
+	struct epoll_event ev;
+	ev.events = EPOLLIN;
+	ev.data.fd = read_fd;
+	epoll_ctl(epoll_fd,EPOLL_CTL_DEL,read_fd,&ev);
+	ev.data.fd = write_fd;
+	epoll_ctl(epoll_fd,EPOLL_CTL_DEL,write_fd,&ev);
+
+	// Should be closed by epoll API, but just in case ...
+	close(read_fd);
+	close(write_fd);
+
+	return;
+}
 
 // Called by main server loop to handle client connections
 // The socket file descriptor assigned to the client is connect_fd
@@ -293,9 +307,10 @@ void *handle_client(void *arg){
 	pid_t cpid;
 
 	// Call protocol_exchange()
-	// TODO: Check for open client socket
 	if(protocol_exchange(connect_fd) == -1){
 		fprintf(stderr, "Server: Unable to complete protocol exchange with client.");
+		// Handle open client socket
+		close(connect_fd);		
 		pthread_exit(NULL);
 	}
 
@@ -308,13 +323,16 @@ void *handle_client(void *arg){
 	// Set client socket to non-blocking
 	if(set_socket_to_non_block(connect_fd) == -1){
 		fprintf(stderr, "Server: Unable to set client socket to non-blocking");
+		// Handle open client socket
+		close(connect_fd);		
 		pthread_exit(NULL);
 	}
 
 	// Create pseudoterminal for bash to execute on
-	// TODO: Check for open client socket
 	if((master_fd = create_pty(pty_slave_name)) == -1){
 		perror("Server: Unable to create PTY. Cancelled client connection.");
+		// Handle open client socket
+		close(connect_fd);
 		pthread_exit(NULL);
 	}
 
@@ -326,7 +344,8 @@ void *handle_client(void *arg){
 	switch(cpid = fork()){
 		case -1:
 			perror("Server: Unable to create sub-process for Bash to execute in.");
-			// TODO: Check for open client socket
+			// Handle open client socket
+			close(connect_fd);
 			exit(EXIT_FAILURE);
 		case 0:
 			// This is creating a sub-process with inheritance of file descriptors
@@ -335,11 +354,13 @@ void *handle_client(void *arg){
 			#endif
 
 			// The PTY Master file descriptor is not needed in the server sub-process
-			// TODO: Check for open client socket
+			// Handle open client socket
+			close(connect_fd);
+			// Handle open server socket
 			close(master_fd);
 
 			// Do stuff and then exec Bash
-			run_pty_shell(pty_slave_name, connect_fd);
+			run_pty_shell(pty_slave_name);
 
 			// If Bash failed, terminate server sub-process, file descriptors get erased on exit
 			exit(EXIT_FAILURE);			
@@ -380,8 +401,7 @@ void *handle_client(void *arg){
 
 	// Terminate server thread for handling client connection
 	pthread_exit(NULL);
-
-	// TODO: No return value here? sb NULL
+	return NULL;
 }
 // End of handle_client()
 
@@ -392,7 +412,8 @@ void *handle_epoll(void * _){
 		printf("Server ePoll API started.\n");
 	#endif
 	
-	struct epoll_event evlist[MAX_EVENTS]; // TODO: This is set to 1000 * 2 in Dr. Carver's.  Evaluate how to make this better.
+	// Large enough to handle two file descriptors for each client
+	struct epoll_event evlist[MAX_CLIENTS * 2];
     char buffer[BUFFER_SIZE];
    	int nread = 0;
    	int nwrite = 0;
@@ -409,14 +430,17 @@ void *handle_epoll(void * _){
 	    // Create epoll interest list from global variable
 	    // Calculate how many file descriptors are ready
 	    int ready_fds = 0;
-	    // TODO: Consider a lower value for the events
-        ready_fds = epoll_wait(epoll_fd, evlist, MAX_EVENTS, -1);
+	    // Clear the value in errno
+	    errno = 0;
+	    // Since a single thread is handling the io, it is unnecessary to get more than one set of file descriptors to handle here
+        ready_fds = epoll_wait(epoll_fd, evlist, 2, -1);
         if (ready_fds == -1) {
-        	// TODO: Be sure this is correct syntax here
+        	// Handle signal interruptions
             if (errno == EINTR){
-                continue;               /* Restart if interrupted by signal */
+                continue;
             }
             else{
+            	// Terminate server on any other error
         		perror("Server: Problem with ePoll interest list.");
 		        exit(EXIT_FAILURE);
             }
@@ -435,6 +459,7 @@ void *handle_epoll(void * _){
 
             	// Handle read/write
 				nwrite = 0;
+				errno = 0;
 				while(nwrite != -1 && (nread = read(read_from_socket,buffer,BUFFER_SIZE)) > 0){
 				 	total = 0;
 				 	do{
@@ -445,51 +470,29 @@ void *handle_epoll(void * _){
 						// Keep reading from the buffer until it is done
 					}while(total < nread);
 				}
-				// TODO: There is a problem here, need to reset the errno and handle nread = 0
-				// TODO: Also remove the client on these errors
+				// TODO: Need to handle nread = 0
 				// Handle errors from io
 				if(errno != EWOULDBLOCK && errno != EAGAIN){
 					perror("Server: Unable to read output.");
 					// Kill Bash if there is an error here
 					kill(cpid_list[evlist[j].data.fd], SIGTERM);
 					// Close the file descriptors on error
-					if(close(epoll_fd_pairs[read_from_socket]) == -1){
-						fprintf(stderr, "Server: Problem closing socket: %d", epoll_fd_pairs[read_from_socket]);
-					}
-					if(close(epoll_fd_pairs[write_to_socket]) == -1){
-						fprintf(stderr, "Server: Problem closing socket: %d", epoll_fd_pairs[write_to_socket]);
-					}
-			        exit(EXIT_FAILURE);
+					destroy_connection(read_from_socket,write_to_socket);
 				}
 			}
-			else if(evlist[j].events & (EPOLLHUP | EPOLLERR)){
-				// TODO: Add EPOLLRDHUP to this error check
+			else if(evlist[j].events & (EPOLLHUP | EPOLLERR | EPOLLRDHUP)){
 				#ifdef DEBUG
-					printf("Server: EPOLLHUP or EPOLLERR.  Closing %d and %d\n.",evlist[j].data.fd, epoll_fd_pairs[evlist[j].data.fd]);
+					printf("Server: EPOLLHUP, EPOLLERR, or EPOLLRDHUP.\n.");
 				#endif
-				// Close the file descriptors on error
-				if(close(epoll_fd_pairs[read_from_socket]) == -1){
-					fprintf(stderr, "Server: Problem closing socket: %d", epoll_fd_pairs[read_from_socket]);
-				}
-				if(close(epoll_fd_pairs[write_to_socket]) == -1){
-					fprintf(stderr, "Server: Problem closing socket: %d", epoll_fd_pairs[write_to_socket]);
-				}
-				// TODO: Need to remove client pair from epoll event list
+				destroy_connection(read_from_socket,write_to_socket);
 			}
 			else {
 				// Should not be possible to get here!
-				// TODO: Since termination of server, kill all child processes and write failure to clients?
-				perror("Server: ePoll API error.");
+				perror("Server: ePoll API error.  Closing all connections.");
 				// Kill Bash if there is an error here
 				kill(cpid_list[evlist[j].data.fd], SIGTERM);
-				// Close the file descriptors on error
-				if(close(epoll_fd_pairs[read_from_socket]) == -1){
-					fprintf(stderr, "Server: Problem closing socket: %d", epoll_fd_pairs[read_from_socket]);
-				}
-				if(close(epoll_fd_pairs[write_to_socket]) == -1){
-					fprintf(stderr, "Server: Problem closing socket: %d", epoll_fd_pairs[write_to_socket]);
-				}
-				// TODO: Need to remove client pair from epoll event list
+				// Check for any child processes
+				while (waitpid(-1,NULL,WNOHANG) > 0);
 		        exit(EXIT_FAILURE);
 			}
         }
@@ -498,14 +501,15 @@ void *handle_epoll(void * _){
 	    #endif
     }
 
-    // TODO: Change this, should only get here if there is a failure in the server
+    // epoll thread is an infinite loop
 
-    #ifdef DEBUG
-	    printf("All file descriptors closed.\n");	
-	#endif
+    // Should only get here if there is a failure in the server
+    fprintf(stderr, "WARNING. All file descriptors are closed.\n");
 
 	// Terminate ePoll API
 	pthread_exit(NULL);
+	// Terminate server since there is no epoll API
+	exit(EXIT_FAILURE);
 }
 // End of handle_epoll()
 
@@ -515,8 +519,12 @@ void *handle_epoll(void * _){
 int protocol_exchange(int connect_fd){
 	// Start a timer to limit protocol exchange
 	struct itimerspec ts;
+	memset(&ts, 0, sizeof(ts));
 	struct sigaction sa;
+	memset(&sa, 0, sizeof(sa));
 	struct sigevent sevp;
+	memset(&sevp, 0, sizeof(sevp));
+
 	timer_t timer_id;
 	int nread = 0;
 	int nwrite = 0;
@@ -546,8 +554,7 @@ int protocol_exchange(int connect_fd){
     // Notify by thread
 	sevp.sigev_notify = SIGEV_THREAD_ID;
 	sevp.sigev_signo = SIGRTMAX;
-	// TODO: consider SYS_gettid here
-	sevp._sigev_un._tid = syscall(__NR_gettid);
+	sevp._sigev_un._tid = syscall(SYS_gettid);
 	sevp.sigev_value.sival_int = connect_fd;
 
     // Create a timer to limit protocol exchange
@@ -613,15 +620,13 @@ int protocol_exchange(int connect_fd){
 	// TODO: Is this necessary?
 	if(signal(SIGRTMAX, SIG_IGN) == SIG_ERR){
 		perror("Server: Unable to turn off signal notification.");
-		// TODO: Consider removing this.  This may be unnecessary
-		return -1;
+		// If signal is not disabled
 	}
 
 	// Destroy timer
 	if(timer_delete(timer_id) == -1){
-		fprintf(stderr, "Server: Timer is still active for %d", connect_fd);
-		// TODO: Consider removing this.  If timer is not deleted, isn't that a resource problem that shouldn't prevent collapse of the system?
-		return -1;
+		fprintf(stderr, "Server: Timer is still available for %d", connect_fd);
+		// If timer is not deleted, it is a resource problem that shouldn't prevent collapse of the system
 	}
 
 	// Protocol exchange completed
@@ -631,7 +636,7 @@ int protocol_exchange(int connect_fd){
 
 
 // Called by handle_client() to run PTY shell [This is where BASH executes!]
-void run_pty_shell(char *pty_slave_name, int connect_fd){
+void run_pty_shell(char *pty_slave_name){
 	// Child is the leader of the new session and looses its controlling terminal.
 	if(setsid() == -1){
 		perror("Server: Unable to set a new session.");
@@ -668,7 +673,7 @@ void run_pty_shell(char *pty_slave_name, int connect_fd){
 	execlp("bash", "bash", NULL);
 
 	// Handle error code from Bash failure
-	// TODO: Should I really terminate the process here?
+	// Terminate the sub-process intended to handle bash for the client
 	perror("Server: Unable to execute Bash in terminal.");
 	exit(EXIT_FAILURE);
 }
@@ -696,7 +701,6 @@ int set_socket_to_non_block(int socket_fd){
 
 
 // Handle signals during protocol exchange
-// TODO: Evaluate why this needs to do so much
 void signal_handler(int sig, siginfo_t *si, void *uc){
 	#ifdef DEBUG
 		printf("Signal Called!\n");
@@ -711,6 +715,7 @@ void signal_handler(int sig, siginfo_t *si, void *uc){
 
 	#ifdef DEBUG
 		printf("Closed Client Socket: %d\n", client_socket);
+		printf("Terminating thread. %ld\n", syscall(SYS_gettid));
 	#endif
 
 	// Terminate this thread

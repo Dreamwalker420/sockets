@@ -33,3 +33,8 @@ Lab #4
 * Ensure mutex properly functions to limit access to job queue
 * Create a test program to analyze use of thread pool
 * Submit files in tarball
+
+Lab #5
+* Integrate solutions from Lab #3 and Lab #5
+* Determine how to handle thread count conflict
+* Test!

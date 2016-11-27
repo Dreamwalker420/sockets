@@ -81,6 +81,7 @@ int create_jobs_queue(int max_jobs){
 	jobs_queue.current_job = 0;
 	jobs_queue.latest_job = 0;
 	pthread_mutex_init(&(jobs_queue.rwlock), NULL);
+	pthread_mutex_init(&(jobs_queue.process_lock), NULL);
 	return 0;
 }
 
