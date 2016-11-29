@@ -3,7 +3,7 @@
  * November 21, 2016
  * 
  * Compile Using this format:
- * $ gcc -Wall -Werror -pedantic lab3-server.c -o server.exe -pthread -lrt
+ * $ gcc -Wall -Werror -pedantic lab5-server.c -o server.exe -pthread -lrt
  *
  * Works with lab5-client.c
  *
@@ -85,6 +85,7 @@ int main(){
 
 	int server_sockfd, client_sockfd;
 	pthread_t epoll_thread, client_thread;
+	pthread_attr_t pthread_attr;
 
 	// Call create_server_socket()
 	if((server_sockfd = create_server_socket()) == -1){
@@ -117,8 +118,21 @@ int main(){
 	// TODO: Use memset to clear space for a struct
 
 
-	// TODO: pthread_attr_init goes here
+	// Setup handler for signals to terminate a connection if it exceeds the timer limit
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_flags = SA_SIGINFO;
+	sa.sa_sigaction = &signal_handler;
+	// TODO: Check what this is doing here?
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGRTMAX, &sa, NULL);
 
+	// Create attribute object for threads
+	if(pthread_attr_init(&pthread_attr) != 0 || pthread_attr_setdetachstate(&pthread_attr, PTHREAD_CREATE_DETACHED) != 0){
+		perror("Server: Unable to set attribute for threads to detach state.");
+		// This is critical because if 1000s of thread control blocks are created and the memory is not reclaimed it can cause problems in the stack
+		exit(EXIT_FAILURE);
+	}
 
 	// Begin accepting new clients
 	#ifdef DEBUG
@@ -144,17 +158,11 @@ int main(){
 			// Start a thread to handle the client ONLY if new client was accepted
 			// Use a thread to handle the client
 
-			// Need to pass the client socked to the thread function
+			// Need to pass the client socket to the thread function
 			int *fd_ptr = malloc(sizeof(int));
 			*fd_ptr = client_sockfd;
-			if(pthread_create(&client_thread, NULL, &handle_client, fd_ptr) != 0){
+			if(pthread_create(&client_thread, &pthread_attr, handle_client, fd_ptr) != 0){
 				perror("Server: Unable to create thread for handling a client.");
-			}
-
-			// Ignore client thread
-			// TODO: Should this be moved to an attribute?
-			if(pthread_detach(client_thread) != 0){
-				perror("Server: Unable to detach thread, Kernel still listening for it..");
 			}
 
 			// Notify server and continue listening for new clients
@@ -171,7 +179,6 @@ int main(){
 	// CTRL-C in the terminal will stop the server from running
 
 	// Should never get here ...
-	// TODO: maybe return exit(failure?)
 	exit(EXIT_FAILURE);
 }
 // End of Main
@@ -305,6 +312,8 @@ void *handle_client(void *arg){
 	struct epoll_event evlist[2];
 	// Store Bash pid
 	pid_t cpid;
+	// Confirmation for client when connection established
+	char *confirm_protocol = "<ok>\n";
 
 	// Call protocol_exchange()
 	if(protocol_exchange(connect_fd) == -1){
@@ -354,9 +363,8 @@ void *handle_client(void *arg){
 			#endif
 
 			// The PTY Master file descriptor is not needed in the server sub-process
-			// Handle open client socket
+			// Handle open sockets
 			close(connect_fd);
-			// Handle open server socket
 			close(master_fd);
 
 			// Do stuff and then exec Bash
@@ -388,6 +396,8 @@ void *handle_client(void *arg){
 	evlist[0].data.fd = connect_fd;
     if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, connect_fd, evlist) == -1){
 	    perror("Server: Unable to add to ePoll interest list.");
+	    close(connect_fd);
+	    close(master_fd);
 		pthread_exit(NULL);
 	}
 
@@ -396,9 +406,20 @@ void *handle_client(void *arg){
 	evlist[1].data.fd = master_fd;
     if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, master_fd, evlist + 1) == -1){
 	    perror("Server: Unable to add to ePoll interest list.");
+	    close(connect_fd);
+	    close(master_fd);
 		pthread_exit(NULL);
 	}
 
+	// Confirm shared secret
+	if((nwrite = write(connect_fd, confirm_protocol, strlen(confirm_protocol))) == -1){
+		perror("Server: Error notifying client of confirmed shared secret.");
+	    close(connect_fd);
+	    close(master_fd);
+		pthread_exit(NULL);
+	} 
+
+	// Should only get here with successful connection
 	// Terminate server thread for handling client connection
 	pthread_exit(NULL);
 	return NULL;
@@ -414,6 +435,7 @@ void *handle_epoll(void * _){
 	
 	// Large enough to handle two file descriptors for each client
 	struct epoll_event evlist[MAX_CLIENTS * 2];
+	memset(&evlist, 0, sizeof(evlist));
     char buffer[BUFFER_SIZE];
    	int nread = 0;
    	int nwrite = 0;
@@ -520,8 +542,7 @@ int protocol_exchange(int connect_fd){
 	// Start a timer to limit protocol exchange
 	struct itimerspec ts;
 	memset(&ts, 0, sizeof(ts));
-	struct sigaction sa;
-	memset(&sa, 0, sizeof(sa));
+
 	struct sigevent sevp;
 	memset(&sevp, 0, sizeof(sevp));
 
@@ -531,25 +552,14 @@ int protocol_exchange(int connect_fd){
 	char from_client[513];
 	char *server_protocol = "<rembash>\n";
 	char *write_error = "<error>\n";
-	char *confirm_protocol = "<ok>\n";
+
 
 	// Timer need only expire once
-	// TODO: These may be unnecessary, especially with memset
 	ts.it_interval.tv_sec = 0;
 	ts.it_interval.tv_nsec = 0;
 	// Timer should be 5 seconds
 	ts.it_value.tv_sec = 5;
     ts.it_value.tv_nsec = 0;
-
-	// Sends signal to terminate if it exceeds the timer limit
-	// TODO: Move to main, once it is set this is redundant code
-	sa.sa_flags = SA_SIGINFO;
-	sa.sa_sigaction = &signal_handler;
-	sigemptyset(&sa.sa_mask);
-	if(sigaction(SIGRTMAX, &sa, NULL) == -1){
-		perror("Server: Unable to handle signal from timer expiration.");
-		return -1;
-	}
 
     // Notify by thread
 	sevp.sigev_notify = SIGEV_THREAD_ID;
@@ -609,12 +619,7 @@ int protocol_exchange(int connect_fd){
 		return -1;
 	}
 
-	// Confirm shared secret
-	// TODO: Consider moving to the completion of the handle client after Bash has forked
-	if((nwrite = write(connect_fd, confirm_protocol, strlen(confirm_protocol))) == -1){
-		perror("Server: Error notifying client of confirmed shared secret.");
-		return -1;
-	} 
+
 
 	// Turn off the signal notification after protocol exchange
 	// TODO: Is this necessary?

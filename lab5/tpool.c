@@ -60,6 +60,7 @@ int tpool_init(void (*process_task)(int));
 
 /* --------------------------------------------------------------------------------------*/
 // Global variables for the thread pool
+// TODO: Conside making these static
 queue_object_t jobs_queue;
 tpool_object_t tpool;
 
