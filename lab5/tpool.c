@@ -60,9 +60,8 @@ int tpool_init(void (*process_task)(int));
 
 /* --------------------------------------------------------------------------------------*/
 // Global variables for the thread pool
-// TODO: Conside making these static
-queue_object_t jobs_queue;
-tpool_object_t tpool;
+static queue_object_t jobs_queue;
+static tpool_object_t tpool;
 
 
 /* --------------------------------------------------------------------------------------*/
@@ -114,6 +113,7 @@ int create_worker_thread(int pool_index){
 
 
 // Called by main to destroy thread pool
+// The thread pool resources are destroyed when the server process is cancelled.
 // Returns 0 on success, -1 on failure
 int destroy_thread_pool_resources(){
 	// This was not specified in the instructions.

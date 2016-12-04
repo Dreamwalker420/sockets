@@ -109,22 +109,16 @@ int main(){
     }
 
 	// Set up epoll API to handle read/writes
-	if(pthread_create(&epoll_thread, NULL, &handle_epoll, NULL) != 0){
+	if(pthread_create(&epoll_thread, NULL, handle_epoll, NULL) != 0){
 		perror("Server: Unable to set-up ePoll API.");
 		exit(EXIT_FAILURE);
 	}
-
-	// TODO: Consider a handler for the timer alarm here
-	// TODO: Use memset to clear space for a struct
-
 
 	// Setup handler for signals to terminate a connection if it exceeds the timer limit
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_flags = SA_SIGINFO;
 	sa.sa_sigaction = &signal_handler;
-	// TODO: Check what this is doing here?
-	sigemptyset(&sa.sa_mask);
 	sigaction(SIGRTMAX, &sa, NULL);
 
 	// Create attribute object for threads
@@ -287,6 +281,7 @@ void destroy_connection(int read_fd, int write_fd){
 
 	// Need to remove client file descriptor pair from epoll event list
 	struct epoll_event ev;
+	memset(&ev, 0, sizeof(ev));
 	ev.events = EPOLLIN;
 	ev.data.fd = read_fd;
 	epoll_ctl(epoll_fd,EPOLL_CTL_DEL,read_fd,&ev);
@@ -310,10 +305,12 @@ void *handle_client(void *arg){
 	free(arg);
 	// To add to the interest list
 	struct epoll_event evlist[2];
+	memset(&evlist, 0, sizeof(evlist));
 	// Store Bash pid
 	pid_t cpid;
 	// Confirmation for client when connection established
 	char *confirm_protocol = "<ok>\n";
+	int nwrite = 0;
 
 	// Call protocol_exchange()
 	if(protocol_exchange(connect_fd) == -1){
@@ -355,7 +352,8 @@ void *handle_client(void *arg){
 			perror("Server: Unable to create sub-process for Bash to execute in.");
 			// Handle open client socket
 			close(connect_fd);
-			exit(EXIT_FAILURE);
+			// Only close the thread for this connection, not the server
+			pthread_exit(NULL);
 		case 0:
 			// This is creating a sub-process with inheritance of file descriptors
 			#ifdef DEBUG
@@ -440,6 +438,8 @@ void *handle_epoll(void * _){
    	int nread = 0;
    	int nwrite = 0;
    	int total = 0;
+   	int ready_fds = 0;
+   	int j = 0;
    	int read_from_socket = 0;
    	int write_to_socket = 0;
 
@@ -451,7 +451,7 @@ void *handle_epoll(void * _){
 
 	    // Create epoll interest list from global variable
 	    // Calculate how many file descriptors are ready
-	    int ready_fds = 0;
+	    ready_fds = 0;
 	    // Clear the value in errno
 	    errno = 0;
 	    // Since a single thread is handling the io, it is unnecessary to get more than one set of file descriptors to handle here
@@ -473,7 +473,7 @@ void *handle_epoll(void * _){
 	    #endif
 
 	    // Process ready file descriptors
-        for (int j = 0; j < ready_fds; j++){
+        for (j = 0; j < ready_fds; j++){
             if(evlist[j].events & EPOLLIN){
              	// Determine where to read from and where to write to
              	read_from_socket = evlist[j].data.fd;
@@ -482,7 +482,7 @@ void *handle_epoll(void * _){
             	// Handle read/write
 				nwrite = 0;
 				errno = 0;
-				while(nwrite != -1 && (nread = read(read_from_socket,buffer,BUFFER_SIZE)) > 0){
+				if((nread = read(read_from_socket,buffer,BUFFER_SIZE)) > 0){
 				 	total = 0;
 				 	do{
 						if((nwrite = write(write_to_socket,buffer+total,nread-total)) == -1){
@@ -492,14 +492,14 @@ void *handle_epoll(void * _){
 						// Keep reading from the buffer until it is done
 					}while(total < nread);
 				}
-				// TODO: Need to handle nread = 0
+
 				// Handle errors from io
-				if(errno != EWOULDBLOCK && errno != EAGAIN){
+				if(nread == 0  || errno){
 					perror("Server: Unable to read output.");
-					// Kill Bash if there is an error here
-					kill(cpid_list[evlist[j].data.fd], SIGTERM);
 					// Close the file descriptors on error
 					destroy_connection(read_from_socket,write_to_socket);
+					// Kill Bash if there is an error here
+					kill(cpid_list[evlist[j].data.fd], SIGTERM);
 				}
 			}
 			else if(evlist[j].events & (EPOLLHUP | EPOLLERR | EPOLLRDHUP)){
@@ -508,15 +508,7 @@ void *handle_epoll(void * _){
 				#endif
 				destroy_connection(read_from_socket,write_to_socket);
 			}
-			else {
-				// Should not be possible to get here!
-				perror("Server: ePoll API error.  Closing all connections.");
-				// Kill Bash if there is an error here
-				kill(cpid_list[evlist[j].data.fd], SIGTERM);
-				// Check for any child processes
-				while (waitpid(-1,NULL,WNOHANG) > 0);
-		        exit(EXIT_FAILURE);
-			}
+			// Any other condition for the event will be ignored here
         }
         #ifdef DEBUG
 	        sleep(1);
@@ -550,7 +542,8 @@ int protocol_exchange(int connect_fd){
 	int nread = 0;
 	int nwrite = 0;
 	char from_client[513];
-	char *server_protocol = "<rembash>\n";
+	// Prevent this value or the pointer from being changed
+	const char * const server_protocol = "<rembash>\n";
 	char *write_error = "<error>\n";
 
 
@@ -584,22 +577,21 @@ int protocol_exchange(int connect_fd){
     	return -1;
     }
 
-    // Activate the timer
-    if(timer_settime(timer_id, 0, &ts, NULL) == -1){
-       	perror("Server: Unable to start timer for protocol exchange.");
-    	return -1;	
-    }
-
 	// Send server protocol to client		
 	if((nwrite = write(connect_fd, server_protocol, strlen(server_protocol))) == -1){
 		perror("Server: Unable to communicate protocol to client.");
 		return -1;
 	}
 
+    // Activate the timer after sending initial protocol
+    // This will allow the client 5 seconds to respond with a correct shared secret
+    if(timer_settime(timer_id, 0, &ts, NULL) == -1){
+       	perror("Server: Unable to start timer for protocol exchange.");
+    	return -1;	
+    }
+
 	// Verify client shared secret
 	if((nread = read(connect_fd,from_client,512)) == -1){
-		// TODO: Change how the error is handled here
-		// TODO: Check other read error handling in the server
 		perror("Server: Error reading from client.");
 		return -1;
 	}
@@ -613,25 +605,19 @@ int protocol_exchange(int connect_fd){
 
 		// Acknowledge client rejected
 		#ifdef DEBUG
-			printf("Client Token Rejected.\n");
+			printf("Token rejected for client file descriptor %d.\n", connect_fd);
 		#endif
 
 		return -1;
 	}
 
-
-
 	// Turn off the signal notification after protocol exchange
-	// TODO: Is this necessary?
-	if(signal(SIGRTMAX, SIG_IGN) == SIG_ERR){
-		perror("Server: Unable to turn off signal notification.");
-		// If signal is not disabled
-	}
+	signal(SIGRTMAX, SIG_IGN);
 
 	// Destroy timer
 	if(timer_delete(timer_id) == -1){
 		fprintf(stderr, "Server: Timer is still available for %d", connect_fd);
-		// If timer is not deleted, it is a resource problem that shouldn't prevent collapse of the system
+		// If timer is not deleted, it is a resource problem that shouldn't prevent collapse of the connection
 	}
 
 	// Protocol exchange completed
