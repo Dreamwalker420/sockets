@@ -414,19 +414,11 @@ int handle_client(int connect_fd){
 		printf("epoll_fd_pairs[%d]: %d\n", epoll_fd_pairs[connect_fd],epoll_fd_pairs[master_fd]);
 	#endif
 
-	// Add client file descriptors to epoll	
-	// evlist[0].events = EPOLLIN;
-	// evlist[0].data.fd = connect_fd;
- //    if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, connect_fd, evlist) == -1){
-	//     perror("Server: Unable to add to ePoll interest list.");
-	//     return -1;
-	// }
-
 	// Add bash relay file descriptor to epoll
-	evlist[1].events = EPOLLIN;
-	evlist[1].data.fd = master_fd;
-    if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, master_fd, evlist + 1) == -1){
-	    perror("Server: Unable to add to ePoll interest list.");
+	evlist[0].events = EPOLLIN;
+	evlist[0].data.fd = master_fd;
+    if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, master_fd, evlist) == -1){
+	    perror("Server: Unable to add Master FD to ePoll interest list.");
 	    return -1;
 	}
 
@@ -436,8 +428,9 @@ int handle_client(int connect_fd){
 		return -1;
 	} 
 
-	// Increment client status
+	// Increment client status to ready IO
 	client_status_record[connect_fd] = 2;
+	client_status_record[master_fd] = 2;
 
 	#ifdef DEBUG
 		printf("Client-Server Protocol Exchange Completed.\n");
@@ -644,11 +637,11 @@ void relay_data(int file_descriptor){
 			}
 
 			// Handle errors from io
-			if(nread == 0  || errno){
-				perror("Server: Unable to read output.");
-				// Close the file descriptors on error
-				destroy_connection(read_from_socket);
-			}
+			// if(nread == 0  || errno){
+			// 	perror("Server: Unable to read output.");
+			// 	// Close the file descriptors on error
+			// 	destroy_connection(read_from_socket);
+			// }
 			break;
 		default:
 			// This can only occur from an error
