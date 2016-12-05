@@ -65,6 +65,7 @@ void destroy_connection(int read_fd, int write_fd);
 void *handle_client(void *arg);
 void *handle_epoll(void *);
 int protocol_exchange(int connect_fd);
+void relay_data(int file_descriptor);
 void run_pty_shell(char *pty_slave_name);
 int set_socket_to_non_block(int socket_fd);
 void signal_handler(int sig, siginfo_t *si, void *uc);
@@ -125,6 +126,15 @@ int main(){
 	if(pthread_attr_init(&pthread_attr) != 0 || pthread_attr_setdetachstate(&pthread_attr, PTHREAD_CREATE_DETACHED) != 0){
 		perror("Server: Unable to set attribute for threads to detach state.");
 		// This is critical because if 1000s of thread control blocks are created and the memory is not reclaimed it can cause problems in the stack
+		exit(EXIT_FAILURE);
+	}
+
+	// Establish a thread pool
+	// Call tpool_init() to create a thread pool
+	// Pass a function as an argument
+	// TODO: verify that this is working correctly
+	if(tpool_init(relay_data) == -1){
+		fprintf(stderr, "Unable to initialize a thread pool.\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -434,14 +444,8 @@ void *handle_epoll(void * _){
 	// Large enough to handle two file descriptors for each client
 	struct epoll_event evlist[MAX_CLIENTS * 2];
 	memset(&evlist, 0, sizeof(evlist));
-    char buffer[BUFFER_SIZE];
-   	int nread = 0;
-   	int nwrite = 0;
-   	int total = 0;
    	int ready_fds = 0;
    	int j = 0;
-   	int read_from_socket = 0;
-   	int write_to_socket = 0;
 
     // Find file desciptors with needs
     while(1){
@@ -475,37 +479,17 @@ void *handle_epoll(void * _){
 	    // Process ready file descriptors
         for (j = 0; j < ready_fds; j++){
             if(evlist[j].events & EPOLLIN){
-             	// Determine where to read from and where to write to
-             	read_from_socket = evlist[j].data.fd;
-            	write_to_socket = epoll_fd_pairs[read_from_socket];
-
-            	// Handle read/write
-				nwrite = 0;
-				errno = 0;
-				if((nread = read(read_from_socket,buffer,BUFFER_SIZE)) > 0){
-				 	total = 0;
-				 	do{
-						if((nwrite = write(write_to_socket,buffer+total,nread-total)) == -1){
-							break;
-						}
-						total += nwrite;
-						// Keep reading from the buffer until it is done
-					}while(total < nread);
-				}
-
-				// Handle errors from io
-				if(nread == 0  || errno){
-					perror("Server: Unable to read output.");
-					// Close the file descriptors on error
-					destroy_connection(read_from_socket,write_to_socket);
-					// Kill Bash if there is an error here
-					kill(cpid_list[evlist[j].data.fd], SIGTERM);
+            	// Add task to the queue using the thread pool
+				if(tpool_add_task(evlist[j].data.fd) == -1){
+					fprintf(stderr, "Adding task #%d failed.\n", evlist[j].data.fd);
 				}
 			}
 			else if(evlist[j].events & (EPOLLHUP | EPOLLERR | EPOLLRDHUP)){
 				#ifdef DEBUG
 					printf("Server: EPOLLHUP, EPOLLERR, or EPOLLRDHUP.\n.");
 				#endif
+				int read_from_socket = evlist[j].data.fd;
+				int write_to_socket = epoll_fd_pairs[read_from_socket];
 				destroy_connection(read_from_socket,write_to_socket);
 			}
 			// Any other condition for the event will be ignored here
@@ -626,6 +610,45 @@ int protocol_exchange(int connect_fd){
 // End of protocol exhcange
 
 
+// Called by thread pool workers to handle the io
+void relay_data(int file_descriptor){
+   	char buffer[BUFFER_SIZE];
+   	int nread = 0;
+   	int nwrite = 0;
+   	int total = 0;
+   	int read_from_socket = 0;
+   	int write_to_socket = 0;
+
+ 	// Determine where to read from and where to write to
+ 	read_from_socket = file_descriptor;
+	write_to_socket = epoll_fd_pairs[read_from_socket];
+
+	// Handle read/write
+	nwrite = 0;
+	errno = 0;
+	if((nread = read(read_from_socket,buffer,BUFFER_SIZE)) > 0){
+	 	total = 0;
+	 	do{
+			if((nwrite = write(write_to_socket,buffer+total,nread-total)) == -1){
+				break;
+			}
+			total += nwrite;
+			// Keep reading from the buffer until it is done
+		}while(total < nread);
+	}
+
+	// Handle errors from io
+	if(nread == 0  || errno){
+		perror("Server: Unable to read output.");
+		// Close the file descriptors on error
+		destroy_connection(read_from_socket,write_to_socket);
+		// Kill Bash if there is an error here
+		// TODO: Not sure this should be here?
+		//kill(cpid_list[evlist[j].data.fd], SIGTERM);
+	}
+}
+// End relay_data()
+
 // Called by handle_client() to run PTY shell [This is where BASH executes!]
 void run_pty_shell(char *pty_slave_name){
 	// Child is the leader of the new session and looses its controlling terminal.
@@ -699,10 +722,11 @@ void signal_handler(int sig, siginfo_t *si, void *uc){
 
 	// Find client socket
 	int client_socket = si->si_value.sival_int;
-	// Close client socket
-	if(close(client_socket) == -1){
-		fprintf(stderr, "Server: Problem closing client socket: %d", client_socket);
-	}
+	// And its pair
+	int write_to_socket = epoll_fd_pairs[client_socket];
+
+	// Close the file descriptors on error
+	destroy_connection(client_socket,write_to_socket);
 
 	#ifdef DEBUG
 		printf("Closed Client Socket: %d\n", client_socket);

@@ -35,6 +35,7 @@ Lab #4
 * Submit files in tarball
 
 Lab #5
-* Integrate solutions from Lab #3 and Lab #5
+* Combine solutions from Lab #3 and Lab #4
 * Determine how to handle thread count conflict
+* Ensure connection timeout occurs for new clients correctly
 * Test!
