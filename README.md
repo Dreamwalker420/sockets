@@ -38,4 +38,7 @@ Lab #5
 * Combine solutions from Lab #3 and Lab #4
 * Determine how to handle thread count conflict
 * Ensure connection timeout occurs for new clients correctly
+* Thread pool must do all the work including the protocol exchange
+* Keep track of client status while handling protocol exchange
+* Only one thread on the server should be listening for new connections
 * Test!

@@ -132,7 +132,6 @@ int main(){
 	// Establish a thread pool
 	// Call tpool_init() to create a thread pool
 	// Pass a function as an argument
-	// TODO: verify that this is working correctly
 	if(tpool_init(relay_data) == -1){
 		fprintf(stderr, "Unable to initialize a thread pool.\n");
 		exit(EXIT_FAILURE);
@@ -642,9 +641,6 @@ void relay_data(int file_descriptor){
 		perror("Server: Unable to read output.");
 		// Close the file descriptors on error
 		destroy_connection(read_from_socket,write_to_socket);
-		// Kill Bash if there is an error here
-		// TODO: Not sure this should be here?
-		//kill(cpid_list[evlist[j].data.fd], SIGTERM);
 	}
 }
 // End relay_data()
@@ -731,14 +727,6 @@ void signal_handler(int sig, siginfo_t *si, void *uc){
 	#ifdef DEBUG
 		printf("Closed Client Socket: %d\n", client_socket);
 		printf("Terminating thread. %ld\n", syscall(SYS_gettid));
-	#endif
-
-	// Terminate this thread
-	pthread_exit(NULL);
-
-	// Should not print here if successfully exited
-	#ifdef DEBUG
-		fprintf(stderr, "Thread Not Terminated\n");
 	#endif
 }
 // End of signal_handler()
