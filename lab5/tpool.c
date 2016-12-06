@@ -100,7 +100,6 @@ int create_worker_thread(int pool_index){
 		perror("Failure to create a worker thread.\n");
 		return -1;	
 	}
-	pthread_detach(worker_thread);
 
 	#ifdef DEBUG
 		printf("Worker thread #%d created.\n", pool_index + 1);
@@ -377,6 +376,15 @@ int tpool_init(void (*process_task)(int)){
 	#ifdef DEBUG
 		printf("Create worker threads.\n");
 	#endif
+
+	// Create attribute object for threads
+	pthread_attr_t pthread_attr;
+	if(pthread_attr_init(&pthread_attr) != 0 || pthread_attr_setdetachstate(&pthread_attr, PTHREAD_CREATE_DETACHED) != 0){
+		perror("Server: Unable to set attribute for threads to detach state.");
+		// This is critical because if 1000s of thread control blocks are created and the memory is not reclaimed it can cause problems in the stack
+		return -1;
+	}
+
 	for(int i = 0; i < max_threads; i++){
 		// Create a worker thread and assign to pool index
 		if((create_worker_thread(i)) == -1){

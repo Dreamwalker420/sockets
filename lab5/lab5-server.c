@@ -75,7 +75,7 @@ pid_t cpid_list[MAX_CLIENTS] = { 0 };
 // File descriptor for epoll
 int epoll_fd;
 // Pairs of file descriptors for epoll to scan.  All initialized to 0
-int epoll_fd_pairs[MAX_CLIENTS * 2 + 5] = { 0 };
+int epoll_fd_pairs[MAX_CLIENTS * 2 + 5] = { -1 };
 // Client status check
 // 0 : Uninitialized
 // 1 : Client is attempting protocol exchange
@@ -90,7 +90,6 @@ int main(){
 
 	int server_sockfd, client_sockfd;
 	pthread_t epoll_thread;
-	// pthread_attr_t pthread_attr;
 
 	// Call create_server_socket()
 	if((server_sockfd = create_server_socket()) == -1){
@@ -125,14 +124,6 @@ int main(){
 	sa.sa_flags = SA_SIGINFO;
 	sa.sa_sigaction = &signal_handler;
 	sigaction(SIGRTMAX, &sa, NULL);
-
-	// Create attribute object for threads
-	// TODO: Is this needed with the thread pool being used?
-	// if(pthread_attr_init(&pthread_attr) != 0 || pthread_attr_setdetachstate(&pthread_attr, PTHREAD_CREATE_DETACHED) != 0){
-	// 	perror("Server: Unable to set attribute for threads to detach state.");
-	// 	// This is critical because if 1000s of thread control blocks are created and the memory is not reclaimed it can cause problems in the stack
-	// 	exit(EXIT_FAILURE);
-	// }
 
 	// Establish a thread pool
 	// Call tpool_init() to create a thread pool
@@ -637,6 +628,7 @@ void relay_data(int file_descriptor){
 			}
 
 			// Handle errors from io
+			// TODO: Handle this error check without crashing the connection
 			// if(nread == 0  || errno){
 			// 	perror("Server: Unable to read output.");
 			// 	// Close the file descriptors on error
